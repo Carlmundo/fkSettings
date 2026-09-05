@@ -68,14 +68,12 @@ namespace TabOrder
     }
 
     void Add(HWND hwnd){
-        if (hwnd)
+        if (hwnd) {
             controls.push_back(hwnd);
-    }
-
-    void Apply(){
-        for (size_t i = 0; i < controls.size(); ++i){
-            HWND insertAfter = (i == 0) ? HWND_TOP : controls[i - 1];
-            SetWindowPos(controls[i], insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            for (size_t i = 0; i < controls.size(); ++i) {
+                HWND insertAfter = (i == 0) ? HWND_TOP : controls[i - 1];
+                SetWindowPos(controls[i], insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
         }
     }
 }
@@ -96,7 +94,6 @@ int __fastcall WeaponsSetWindowPos_Input(int hWnd, void* lol, HWND hWndInsertAft
 
     if (style == 1342242821) { //Trackbar with tabstop
         TabOrder::Add(hwnd);
-        TabOrder::Apply();
     }
 
     if(scale > 1)
@@ -113,7 +110,6 @@ int __fastcall WeaponsSetWindowPos_Button(int hWnd, void* lol, HWND hWndInsertAf
 
     if (style == 1342242819) { //Checkbox with tabstop
         TabOrder::Add(hwnd);
-        TabOrder::Apply();
     }
     else {
         if (scale > 1)
@@ -381,14 +377,13 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
                 comboDC->SelectObject(old);
 
                 int buttonWidth = textSize.cx;
-                //
-
+                double scale = GetDpiScaleFactor(returnVal);
                 if (leftAlign)
-                    buttonWidth += 8;
+                    buttonWidth += round(8 * scale);
                 else
-                    buttonWidth += 13;
+                    buttonWidth += round(13 * scale);
 
-                int buttonHeight = 25;
+                int buttonHeight = round(25 * scale);
 
                 RECT btnRect;
                 btnRect.left = previewRect.left + (previewRect.Width() / 2) - (buttonWidth / 2);
