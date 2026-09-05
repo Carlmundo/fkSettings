@@ -59,6 +59,27 @@ void PatchCall(void* callAddr, void* newFunc) {
     VirtualProtect(p, 5, oldProtect, &oldProtect);
 }
 
+namespace TabOrder
+{
+    static std::vector<HWND> controls;
+
+    void Reset(){
+        controls.clear();
+    }
+
+    void Add(HWND hwnd){
+        if (hwnd)
+            controls.push_back(hwnd);
+    }
+
+    void Apply(){
+        for (size_t i = 0; i < controls.size(); ++i){
+            HWND insertAfter = (i == 0) ? HWND_TOP : controls[i - 1];
+            SetWindowPos(controls[i], insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+}
+
 int __fastcall WeaponsSetWindowPos_Label(int hWnd, void* lol, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags)
 {
     HWND hwnd = *(HWND*)(hWnd + 28);
@@ -70,10 +91,16 @@ int __fastcall WeaponsSetWindowPos_Label(int hWnd, void* lol, HWND hWndInsertAft
 int __fastcall WeaponsSetWindowPos_Input(int hWnd, void* lol, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags)
 {
     HWND hwnd = *(HWND*)(hWnd + 28);
+    DWORD style = (DWORD)GetWindowLongPtr(hwnd, GWL_STYLE);
     double scale = GetDpiScaleFactor(hwnd);
 
+    if (style == 1342242821) { //Trackbar with tabstop
+        TabOrder::Add(hwnd);
+        TabOrder::Apply();
+    }
+
     if(scale > 1)
-        Y = (int)round(Y + (15 * (scale - 1)));
+        Y = (int)round(Y + (13 * (scale - 1))); //13 = Height of text
 
     return SetWindowPos(hwnd, hWndInsertAfter, X, Y, cx, cy, uFlags);
 }
@@ -81,11 +108,17 @@ int __fastcall WeaponsSetWindowPos_Input(int hWnd, void* lol, HWND hWndInsertAft
 int __fastcall WeaponsSetWindowPos_Button(int hWnd, void* lol, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags)
 {
     HWND hwnd = *(HWND*)(hWnd + 28);
+    DWORD style = (DWORD)GetWindowLongPtr(hwnd, GWL_STYLE);
     double scale = GetDpiScaleFactor(hwnd);
 
-    if (scale > 1)
-        X = (int)round(X + (15 * (scale - 1)));
-
+    if (style == 1342242819) { //Checkbox with tabstop
+        TabOrder::Add(hwnd);
+        TabOrder::Apply();
+    }
+    else {
+        if (scale > 1)
+            X = (int)round(X + (18 * (scale - 1)));
+    }
     return SetWindowPos(hwnd, hWndInsertAfter, X, Y, cx, cy, uFlags);
 }
 
@@ -378,6 +411,18 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
             }
         }
 
+        //Weapon options - reset tab order
+        int dialogId;
+        if (IS_INTRESOURCE(lastFoundResourceName))
+        {
+            dialogId = static_cast<int>(
+                reinterpret_cast<ULONG_PTR>(lastFoundResourceName)
+                );
+            if (dialogId >= 4900 && dialogId <=4937) {
+                TabOrder::Reset();
+            }
+        }
+
         //IPX address book
         if (overrideAddressBook)
         {
@@ -613,11 +658,11 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         DWORD CFormViewSetWindowPos6Addr = Hooks::scanPattern2("CFormViewSetWindowPos6", "E8 E6 4E 09 00 6A 00 8D 4D A4 E8 F1");
         DWORD CFormViewSetWindowPos7Addr = Hooks::scanPattern2("CFormViewSetWindowPos7", "E8 BF 4E 09 00 8D 4D A4 E8 CC");
 
-        PatchCall((void*)CFormViewSetWindowPos5Addr, WeaponsSetWindowPos_Input);
-        PatchCall((void*)CFormViewSetWindowPos4Addr, WeaponsSetWindowPos_Input);
+        PatchCall((void*)CFormViewSetWindowPos5Addr, WeaponsSetWindowPos_Input); //Labels adjacent to trackbars
+        PatchCall((void*)CFormViewSetWindowPos4Addr, WeaponsSetWindowPos_Input); //Trackbars
 
-        PatchCall((void*)CFormViewSetWindowPos6Addr, WeaponsSetWindowPos_Button); //moves checkbox text
-        //PatchCall((void*)CFormViewSetWindowPos7Addr, WeaponsSetWindowPos_Button); //moves the checkbox
+        PatchCall((void*)CFormViewSetWindowPos6Addr, WeaponsSetWindowPos_Button); //Checkbox label
+        PatchCall((void*)CFormViewSetWindowPos7Addr, WeaponsSetWindowPos_Button); //Checkbox
 
         //DWORD CFromViewGetDlgItemCall = Hooks::scanPattern2("CFromViewGetDlgItemCall", "E8 B1 4B 09 00 89 45 C8");
         //CWndGetDlgItemTarget = CFromViewGetDlgItemCall + 5 + *(DWORD*)(CFromViewGetDlgItemCall + 1);
