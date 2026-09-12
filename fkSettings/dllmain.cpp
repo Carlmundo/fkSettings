@@ -35,8 +35,8 @@ bool IPXEnabled = false;
 
 bool createAdvancedOptions = false;
 bool overrideAddressBook = false;
-bool reposExitButton = false;
-bool reposHintText = false;
+bool reposExitButton = true;
+bool reposHintText = true;
 
 double GetDpiScaleFactor(HWND hwnd)
 {
@@ -356,7 +356,7 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
         pWnd->GetWindowTextW(title);
         double scale = GetDpiScaleFactor(returnVal);
 
-        if (!reposHintText) {
+        if (reposHintText) {
             if (scale == 2) {
                 CWnd* txtHint = pWnd->GetDlgItem(1003);
                 if (txtHint) {
@@ -365,15 +365,15 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
                     txtHint->GetParent()->ScreenToClient(&rectHint);
                     rectHint.bottom = rectHint.bottom + 4;
                     txtHint->MoveWindow(&rectHint);
-                    reposHintText = true;
+                    reposHintText = false;
                 }
             }
             else {
-                reposHintText = true;
+                reposHintText = false;
             }
         }
         
-        if (!reposExitButton){
+        if (reposExitButton){
             CWnd* btnExit = pWnd->GetDlgItem(1248);
             if (btnExit) {
                 if (scale > 1 && title == "Worms2") {
@@ -395,7 +395,7 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
                     rectExit.left = rectExit.right - (27 * btnExitMultiplier);
                     btnExit->MoveWindow(&rectExit);
                 }
-                reposExitButton = true;
+                reposExitButton = false;
             }
         }
 
