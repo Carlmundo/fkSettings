@@ -35,6 +35,7 @@ bool IPXEnabled = false;
 
 bool createAdvancedOptions = false;
 bool overrideAddressBook = false;
+bool posExitButton = false;
 
 double GetDpiScaleFactor(HWND hwnd)
 {
@@ -352,6 +353,33 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
 
         CString title;
         pWnd->GetWindowTextW(title);
+        double scale = GetDpiScaleFactor(returnVal);
+
+        if (!posExitButton){
+            CWnd* btnExit = pWnd->GetDlgItem(1248);
+            if (btnExit) {
+                if (scale > 1 && title == "Worms2") {
+                    CWnd* landingStart = pWnd->GetDlgItem(1216);
+                    CRect rectExit;
+                    CRect rectLanding;
+
+                    btnExit->GetWindowRect(&rectExit);
+                    // Convert screen coordinates to parent client coordinates
+                    btnExit->GetParent()->ScreenToClient(&rectExit);
+
+                    landingStart->GetWindowRect(&rectLanding);
+                    landingStart->GetParent()->ScreenToClient(&rectLanding);
+
+                    int rectLandingPad = (rectLanding.top - 4) * 2;
+                    rectExit.bottom = 24 + (rectLanding.top * scale) + rectLandingPad;
+                    //Original control dimensions: 27x24, top: 0
+                    double btnExitMultiplier = (double)rectExit.bottom / 24;
+                    rectExit.left = rectExit.right - (27 * btnExitMultiplier);
+                    btnExit->MoveWindow(&rectExit);
+                }
+                posExitButton = true;
+            }
+        }
 
         if (createAdvancedOptions && !(advancedOptionsBtn.GetSafeHwnd() && ::IsWindow(advancedOptionsBtn.GetSafeHwnd()))) {
             //Video options advanced button
@@ -377,7 +405,6 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
                 comboDC->SelectObject(old);
 
                 int buttonWidth = textSize.cx;
-                double scale = GetDpiScaleFactor(returnVal);
                 if (leftAlign)
                     buttonWidth += round(8 * scale);
                 else
@@ -407,12 +434,10 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
         }
 
         //Weapon options - reset tab order
-        int dialogId;
-        if (IS_INTRESOURCE(lastFoundResourceName))
+        if (IS_INTRESOURCE(lastFoundResourceName) && title == "")
         {
-            dialogId = static_cast<int>(
-                reinterpret_cast<ULONG_PTR>(lastFoundResourceName)
-                );
+            int dialogId;
+            dialogId = static_cast<int>(reinterpret_cast<ULONG_PTR>(lastFoundResourceName));
             if (dialogId >= 4900 && dialogId <=4937) {
                 TabOrder::Reset();
             }
