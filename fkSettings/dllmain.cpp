@@ -4,6 +4,10 @@
 #include <afxext.h>         // MFC extensions
 #include "winerror.h"
 #include <filesystem>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
+#include <array>
+#include <random>
 
 #ifdef _X86_
 extern "C" { int _afxForceUSRDLL; }
@@ -166,6 +170,121 @@ WNDPROC ogIPXBtnWndProc = nullptr;
 WNDPROC ogTCPBtnWndProc = nullptr;
 
 CWnd* hint;
+
+//Soundbank Play button related
+#define SPEECH_PLAY_BUTTON_ID 50001
+HWND speechComboBoxHwnd = nullptr;
+WNDPROC ogTeamEditorWndProc = nullptr;
+void PlaySpeechPreview() {
+    if (!speechComboBoxHwnd || !::IsWindow(speechComboBoxHwnd)) {
+        return;
+    }
+    int selectedIndex = (int)SendMessageA(speechComboBoxHwnd, CB_GETCURSEL, 0, 0);
+    if (selectedIndex == CB_ERR) {
+        return;
+    }
+    int textLength = (int)SendMessageA(speechComboBoxHwnd, CB_GETLBTEXTLEN, selectedIndex, 0);
+    if (textLength == CB_ERR) {
+        return;
+    }
+    std::string comboValue(textLength + 1, '\0');
+    SendMessageA(speechComboBoxHwnd, CB_GETLBTEXT, selectedIndex, (LPARAM)comboValue.data());
+    comboValue.resize(textLength);
+
+    // Get current directory
+    char exePath[MAX_PATH] = {};
+    GetModuleFileNameA(NULL, exePath, MAX_PATH);
+    std::filesystem::path gameDirectory = std::filesystem::path(exePath).parent_path();
+
+    // Get StringTable resource ID 99 - "Default", in English
+    char strDefault[256] = {};
+    LoadStringA(GetModuleHandleA(NULL), 99, strDefault, sizeof(strDefault));
+
+    static const std::array<const char*, 45> speechFiles = {
+        "boring.wav",
+        "bummer.wav",
+        "bungee.wav",
+        "byebye.wav",
+        "collect.wav",
+        "comeonthen.wav",
+        "coward.wav",
+        "dragonpunch.wav",
+        "drop.wav",
+        "fatality.wav",
+        "fire.wav",
+        "fireball.wav",
+        "firstblood.wav",
+        "flawless.wav",
+        "grenade.wav",
+        "hello.wav",
+        "hurry.wav",
+        "illgetyou.wav",
+        "incoming.wav",
+        "jump1.wav",
+        "jump2.wav",
+        "justyouwait.wav",
+        "kamikaze.wav",
+        "laugh.wav",
+        "missed.wav",
+        "nooo.wav",
+        "OHDEAR.WAV",
+        "oinutter.wav",
+        "ooff1.wav",
+        "ooff2.wav",
+        "ooff3.wav",
+        "oops.wav",
+        "orders.wav",
+        "ow1.wav",
+        "ow2.wav",
+        "ow3.wav",
+        "revenge.wav",
+        "runaway.wav",
+        "stupid.wav",
+        "takecover.wav",
+        "traitor.wav",
+        "victory.wav",
+        "watchthis.wav",
+        "whatthe.wav",
+        "youllregretthat.wav"
+    };
+
+    // Create the random generator once
+    static std::mt19937 rng(std::random_device{}());
+    std::uniform_int_distribution<size_t> distribution(0, speechFiles.size() - 1);
+    const char* randomFile = speechFiles[distribution(rng)];
+
+    std::filesystem::path wavPath;
+    if (_stricmp(comboValue.c_str(), strDefault) == 0) {
+        // Data\Wav\Speech\<random file>
+        wavPath = gameDirectory/"Data"/"Wav"/"Speech"/randomFile;
+    }
+    else {
+        // Data\Wav\Speech\{Name}\<random file>
+        wavPath = gameDirectory/"Data"/"Wav"/"Speech"/comboValue/randomFile;
+    }
+
+    std::string fullPath = wavPath.string();
+    if (!std::filesystem::exists(wavPath)) {
+        return;
+    }
+    PlaySoundA(fullPath.c_str(), NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);    
+}
+LRESULT CALLBACK TeamEditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    if (message == WM_COMMAND) {
+        const int controlId = LOWORD(wParam);
+        const int notification = HIWORD(wParam);
+        if (controlId == SPEECH_PLAY_BUTTON_ID && notification == BN_CLICKED) {
+            PlaySpeechPreview();
+            return 0;
+        }
+    }
+    LRESULT result = CallWindowProc(ogTeamEditorWndProc, hWnd, message, wParam, lParam);
+    if (message == WM_NCDESTROY) {
+        speechComboBoxHwnd = nullptr;
+        ogTeamEditorWndProc = nullptr;
+    }
+    return result;
+}
 
 //Process the TCP button's incoming messages
 LRESULT CALLBACK TCPBtnWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -450,9 +569,56 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
                 return returnVal;
             }
         }
+        // Team Editor dialog - Add play button for soundbanks
+        if (lastFoundResourceName == MAKEINTRESOURCEA(131))
+        {
+            CWnd* cbScheme = pWnd->GetDlgItem(1027);
+            if (cbScheme) {
+                speechComboBoxHwnd = cbScheme->GetSafeHwnd();
+                CRect comboRect;
+                cbScheme->GetWindowRect(&comboRect);
+                pWnd->ScreenToClient(&comboRect);
 
+                // Load text from StringTable ID 2011 - "Play" in English
+                char playButtonText[256] = {};
+                if (LoadStringA(GetModuleHandleA(NULL), 2011, playButtonText, sizeof(playButtonText)) == 0) {
+                    // Fallback if tring cannot be loaded
+                    strcpy_s(playButtonText, "Play");
+                }
+
+                const int buttonWidth = (int)round(50 * scale);
+                int buttonX = comboRect.right + round(10 * scale);
+                int buttonY = comboRect.top;
+                int buttonHeight = comboRect.Height();
+
+                HWND speechPlayButtonHwnd = CreateWindowExA(
+                    0,
+                    "BUTTON",
+                    playButtonText,
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                    buttonX,
+                    buttonY,
+                    buttonWidth,
+                    buttonHeight,
+                    returnVal,
+                    (HMENU)(INT_PTR)SPEECH_PLAY_BUTTON_ID,
+                    hInstance,
+                    NULL
+                );
+
+                if (speechPlayButtonHwnd) {
+                    // Make the new button use the same font as the combo box.
+                    HFONT font = (HFONT)SendMessageW(speechComboBoxHwnd, WM_GETFONT, 0, 0);
+                    if (font) {
+                        SendMessageW(speechPlayButtonHwnd, WM_SETFONT,(WPARAM)font, TRUE);
+                    }
+                    // Intercept button clicks from this dialog.
+                    ogTeamEditorWndProc = (WNDPROC)SetWindowLongPtr(returnVal, GWLP_WNDPROC, (LONG_PTR)TeamEditorWndProc);
+                }
+            }
+        }
         //Weapon options - reset tab order
-        if (IS_INTRESOURCE(lastFoundResourceName) && title == "")
+        if (IS_INTRESOURCE(lastFoundResourceName) && title.IsEmpty())
         {
             int dialogId;
             dialogId = static_cast<int>(reinterpret_cast<ULONG_PTR>(lastFoundResourceName));
