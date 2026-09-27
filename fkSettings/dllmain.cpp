@@ -200,8 +200,10 @@ void PlaySpeechPreview() {
     char strDefault[256] = {};
     LoadStringA(GetModuleHandleA(NULL), 99, strDefault, sizeof(strDefault));
 
-    static const std::array<const char*, 45> speechFiles = {
+    static const std::array<const char*, 49> speechFiles = {
+        "amazing.wav",
         "boring.wav",
+        "brilliant.wav",
         "bummer.wav",
         "bungee.wav",
         "byebye.wav",
@@ -210,6 +212,7 @@ void PlaySpeechPreview() {
         "coward.wav",
         "dragonpunch.wav",
         "drop.wav",
+        "excellent.wav",
         "fatality.wav",
         "fire.wav",
         "fireball.wav",
@@ -237,6 +240,7 @@ void PlaySpeechPreview() {
         "ow1.wav",
         "ow2.wav",
         "ow3.wav",
+        "perfect.wav",
         "revenge.wav",
         "runaway.wav",
         "stupid.wav",
