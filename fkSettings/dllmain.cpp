@@ -4,6 +4,10 @@
 #include <afxext.h>         // MFC extensions
 #include "winerror.h"
 #include <filesystem>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
+#include <array>
+#include <random>
 
 #ifdef _X86_
 extern "C" { int _afxForceUSRDLL; }
@@ -36,6 +40,8 @@ bool IPXEnabled = false;
 
 bool createAdvancedOptions = false;
 bool overrideAddressBook = false;
+bool reposExitButton = true;
+bool reposHintText = true;
 
 double GetDpiScaleFactor(HWND hwnd)
 {
@@ -60,6 +66,25 @@ void PatchCall(void* callAddr, void* newFunc) {
     VirtualProtect(p, 5, oldProtect, &oldProtect);
 }
 
+namespace TabOrder
+{
+    static std::vector<HWND> controls;
+
+    void Reset(){
+        controls.clear();
+    }
+
+    void Add(HWND hwnd){
+        if (hwnd) {
+            controls.push_back(hwnd);
+            for (size_t i = 0; i < controls.size(); ++i) {
+                HWND insertAfter = (i == 0) ? HWND_TOP : controls[i - 1];
+                SetWindowPos(controls[i], insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+        }
+    }
+}
+
 int __fastcall WeaponsSetWindowPos_Label(int hWnd, void* lol, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags)
 {
     HWND hwnd = *(HWND*)(hWnd + 28);
@@ -71,10 +96,15 @@ int __fastcall WeaponsSetWindowPos_Label(int hWnd, void* lol, HWND hWndInsertAft
 int __fastcall WeaponsSetWindowPos_Input(int hWnd, void* lol, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags)
 {
     HWND hwnd = *(HWND*)(hWnd + 28);
+    DWORD style = (DWORD)GetWindowLongPtr(hwnd, GWL_STYLE);
     double scale = GetDpiScaleFactor(hwnd);
 
+    if (style == 1342242821) { //Trackbar with tabstop
+        TabOrder::Add(hwnd);
+    }
+
     if(scale > 1)
-        Y = (int)round(Y + (15 * (scale - 1)));
+        Y = (int)round(Y + (13 * (scale - 1))); //13 = Height of text
 
     return SetWindowPos(hwnd, hWndInsertAfter, X, Y, cx, cy, uFlags);
 }
@@ -82,11 +112,16 @@ int __fastcall WeaponsSetWindowPos_Input(int hWnd, void* lol, HWND hWndInsertAft
 int __fastcall WeaponsSetWindowPos_Button(int hWnd, void* lol, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags)
 {
     HWND hwnd = *(HWND*)(hWnd + 28);
+    DWORD style = (DWORD)GetWindowLongPtr(hwnd, GWL_STYLE);
     double scale = GetDpiScaleFactor(hwnd);
 
-    if (scale > 1)
-        X = (int)round(X + (15 * (scale - 1)));
-
+    if (style == 1342242819) { //Checkbox with tabstop
+        TabOrder::Add(hwnd);
+    }
+    else {
+        if (scale > 1)
+            X = (int)round(X + (18 * (scale - 1)));
+    }
     return SetWindowPos(hwnd, hWndInsertAfter, X, Y, cx, cy, uFlags);
 }
 
@@ -136,6 +171,125 @@ WNDPROC ogIPXBtnWndProc = nullptr;
 WNDPROC ogTCPBtnWndProc = nullptr;
 
 CWnd* hint;
+
+//Soundbank Play button related
+#define SPEECH_PLAY_BUTTON_ID 50001
+HWND speechComboBoxHwnd = nullptr;
+WNDPROC ogTeamEditorWndProc = nullptr;
+void PlaySpeechPreview() {
+    if (!speechComboBoxHwnd || !::IsWindow(speechComboBoxHwnd)) {
+        return;
+    }
+    int selectedIndex = (int)SendMessageA(speechComboBoxHwnd, CB_GETCURSEL, 0, 0);
+    if (selectedIndex == CB_ERR) {
+        return;
+    }
+    int textLength = (int)SendMessageA(speechComboBoxHwnd, CB_GETLBTEXTLEN, selectedIndex, 0);
+    if (textLength == CB_ERR) {
+        return;
+    }
+    std::string comboValue(textLength + 1, '\0');
+    SendMessageA(speechComboBoxHwnd, CB_GETLBTEXT, selectedIndex, (LPARAM)comboValue.data());
+    comboValue.resize(textLength);
+
+    // Get current directory
+    char exePath[MAX_PATH] = {};
+    GetModuleFileNameA(NULL, exePath, MAX_PATH);
+    std::filesystem::path gameDirectory = std::filesystem::path(exePath).parent_path();
+
+    // Get StringTable resource ID 99 - "Default", in English
+    char strDefault[256] = {};
+    LoadStringA(GetModuleHandleA(NULL), 99, strDefault, sizeof(strDefault));
+
+    static const std::array<const char*, 49> speechFiles = {
+        "amazing.wav",
+        "boring.wav",
+        "brilliant.wav",
+        "bummer.wav",
+        "bungee.wav",
+        "byebye.wav",
+        "collect.wav",
+        "comeonthen.wav",
+        "coward.wav",
+        "dragonpunch.wav",
+        "drop.wav",
+        "excellent.wav",
+        "fatality.wav",
+        "fire.wav",
+        "fireball.wav",
+        "firstblood.wav",
+        "flawless.wav",
+        "grenade.wav",
+        "hello.wav",
+        "hurry.wav",
+        "illgetyou.wav",
+        "incoming.wav",
+        "jump1.wav",
+        "jump2.wav",
+        "justyouwait.wav",
+        "kamikaze.wav",
+        "laugh.wav",
+        "missed.wav",
+        "nooo.wav",
+        "OHDEAR.WAV",
+        "oinutter.wav",
+        "ooff1.wav",
+        "ooff2.wav",
+        "ooff3.wav",
+        "oops.wav",
+        "orders.wav",
+        "ow1.wav",
+        "ow2.wav",
+        "ow3.wav",
+        "perfect.wav",
+        "revenge.wav",
+        "runaway.wav",
+        "stupid.wav",
+        "takecover.wav",
+        "traitor.wav",
+        "victory.wav",
+        "watchthis.wav",
+        "whatthe.wav",
+        "youllregretthat.wav"
+    };
+
+    // Create the random generator once
+    static std::mt19937 rng(std::random_device{}());
+    std::uniform_int_distribution<size_t> distribution(0, speechFiles.size() - 1);
+    const char* randomFile = speechFiles[distribution(rng)];
+
+    std::filesystem::path wavPath;
+    if (_stricmp(comboValue.c_str(), strDefault) == 0) {
+        // Data\Wav\Speech\<random file>
+        wavPath = gameDirectory/"Data"/"Wav"/"Speech"/randomFile;
+    }
+    else {
+        // Data\Wav\Speech\{Name}\<random file>
+        wavPath = gameDirectory/"Data"/"Wav"/"Speech"/comboValue/randomFile;
+    }
+
+    std::string fullPath = wavPath.string();
+    if (!std::filesystem::exists(wavPath)) {
+        return;
+    }
+    PlaySoundA(fullPath.c_str(), NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);    
+}
+LRESULT CALLBACK TeamEditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    if (message == WM_COMMAND) {
+        const int controlId = LOWORD(wParam);
+        const int notification = HIWORD(wParam);
+        if (controlId == SPEECH_PLAY_BUTTON_ID && notification == BN_CLICKED) {
+            PlaySpeechPreview();
+            return 0;
+        }
+    }
+    LRESULT result = CallWindowProc(ogTeamEditorWndProc, hWnd, message, wParam, lParam);
+    if (message == WM_NCDESTROY) {
+        speechComboBoxHwnd = nullptr;
+        ogTeamEditorWndProc = nullptr;
+    }
+    return result;
+}
 
 //Process the TCP button's incoming messages
 LRESULT CALLBACK TCPBtnWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -324,6 +478,50 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
 
         CString title;
         pWnd->GetWindowTextW(title);
+        double scale = GetDpiScaleFactor(returnVal);
+
+        if (reposHintText) {
+            if (scale == 2) {
+                CWnd* txtHint = pWnd->GetDlgItem(1003);
+                if (txtHint) {
+                    CRect rectHint;
+                    txtHint->GetWindowRect(&rectHint);
+                    txtHint->GetParent()->ScreenToClient(&rectHint);
+                    rectHint.bottom = rectHint.bottom + 4;
+                    txtHint->MoveWindow(&rectHint);
+                    reposHintText = false;
+                }
+            }
+            else {
+                reposHintText = false;
+            }
+        }
+        
+        if (reposExitButton){
+            CWnd* btnExit = pWnd->GetDlgItem(1248);
+            if (btnExit) {
+                if (scale > 1 && title == "Worms2") {
+                    CWnd* landingStart = pWnd->GetDlgItem(1216);
+                    CRect rectExit;
+                    CRect rectLanding;
+
+                    btnExit->GetWindowRect(&rectExit);
+                    // Convert screen coordinates to parent client coordinates
+                    btnExit->GetParent()->ScreenToClient(&rectExit);
+
+                    landingStart->GetWindowRect(&rectLanding);
+                    landingStart->GetParent()->ScreenToClient(&rectLanding);
+
+                    int rectLandingPad = (rectLanding.top - 4) * 2;
+                    rectExit.bottom = 24 + (rectLanding.top * scale) + rectLandingPad;
+                    //Original control dimensions: 27x24, top: 0
+                    double btnExitMultiplier = (double)rectExit.bottom / 24;
+                    rectExit.left = rectExit.right - (27 * btnExitMultiplier);
+                    btnExit->MoveWindow(&rectExit);
+                }
+                reposExitButton = false;
+            }
+        }
 
         if (createAdvancedOptions && !(advancedOptionsBtn.GetSafeHwnd() && ::IsWindow(advancedOptionsBtn.GetSafeHwnd()))) {
             //Video options advanced button
@@ -349,14 +547,12 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
                 comboDC->SelectObject(old);
 
                 int buttonWidth = textSize.cx;
-                //
-
                 if (leftAlign)
-                    buttonWidth += 8;
+                    buttonWidth += round(8 * scale);
                 else
-                    buttonWidth += 13;
+                    buttonWidth += round(13 * scale);
 
-                int buttonHeight = 25;
+                int buttonHeight = round(25 * scale);
 
                 RECT btnRect;
                 btnRect.left = previewRect.left + (previewRect.Width() / 2) - (buttonWidth / 2);
@@ -376,6 +572,63 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
                 ogVideoOptWndProc = (WNDPROC)SetWindowLongPtr(returnVal, GWLP_WNDPROC, (LONG_PTR)VideoOptWndProc);
 
                 return returnVal;
+            }
+        }
+        // Team Editor dialog - Add play button for soundbanks
+        if (lastFoundResourceName == MAKEINTRESOURCEA(131))
+        {
+            CWnd* cbScheme = pWnd->GetDlgItem(1027);
+            if (cbScheme) {
+                speechComboBoxHwnd = cbScheme->GetSafeHwnd();
+                CRect comboRect;
+                cbScheme->GetWindowRect(&comboRect);
+                pWnd->ScreenToClient(&comboRect);
+
+                // Load text from StringTable ID 2011 - "Play" in English
+                char playButtonText[256] = {};
+                if (LoadStringA(GetModuleHandleA(NULL), 2011, playButtonText, sizeof(playButtonText)) == 0) {
+                    // Fallback if tring cannot be loaded
+                    strcpy_s(playButtonText, "Play");
+                }
+
+                const int buttonWidth = (int)round(50 * scale);
+                int buttonX = comboRect.right + round(10 * scale);
+                int buttonY = comboRect.top;
+                int buttonHeight = comboRect.Height();
+
+                HWND speechPlayButtonHwnd = CreateWindowExA(
+                    0,
+                    "BUTTON",
+                    playButtonText,
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                    buttonX,
+                    buttonY,
+                    buttonWidth,
+                    buttonHeight,
+                    returnVal,
+                    (HMENU)(INT_PTR)SPEECH_PLAY_BUTTON_ID,
+                    hInstance,
+                    NULL
+                );
+
+                if (speechPlayButtonHwnd) {
+                    // Make the new button use the same font as the combo box.
+                    HFONT font = (HFONT)SendMessageW(speechComboBoxHwnd, WM_GETFONT, 0, 0);
+                    if (font) {
+                        SendMessageW(speechPlayButtonHwnd, WM_SETFONT,(WPARAM)font, TRUE);
+                    }
+                    // Intercept button clicks from this dialog.
+                    ogTeamEditorWndProc = (WNDPROC)SetWindowLongPtr(returnVal, GWLP_WNDPROC, (LONG_PTR)TeamEditorWndProc);
+                }
+            }
+        }
+        //Weapon options - reset tab order
+        if (IS_INTRESOURCE(lastFoundResourceName) && title.IsEmpty())
+        {
+            int dialogId;
+            dialogId = static_cast<int>(reinterpret_cast<ULONG_PTR>(lastFoundResourceName));
+            if (dialogId >= 4900 && dialogId <=4937) {
+                TabOrder::Reset();
             }
         }
 
@@ -614,11 +867,11 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         DWORD CFormViewSetWindowPos6Addr = Hooks::scanPattern2("CFormViewSetWindowPos6", "E8 E6 4E 09 00 6A 00 8D 4D A4 E8 F1");
         DWORD CFormViewSetWindowPos7Addr = Hooks::scanPattern2("CFormViewSetWindowPos7", "E8 BF 4E 09 00 8D 4D A4 E8 CC");
 
-        PatchCall((void*)CFormViewSetWindowPos5Addr, WeaponsSetWindowPos_Input);
-        PatchCall((void*)CFormViewSetWindowPos4Addr, WeaponsSetWindowPos_Input);
+        PatchCall((void*)CFormViewSetWindowPos5Addr, WeaponsSetWindowPos_Input); //Labels adjacent to trackbars
+        PatchCall((void*)CFormViewSetWindowPos4Addr, WeaponsSetWindowPos_Input); //Trackbars
 
-        PatchCall((void*)CFormViewSetWindowPos6Addr, WeaponsSetWindowPos_Button); //moves checkbox text
-        //PatchCall((void*)CFormViewSetWindowPos7Addr, WeaponsSetWindowPos_Button); //moves the checkbox
+        PatchCall((void*)CFormViewSetWindowPos6Addr, WeaponsSetWindowPos_Button); //Checkbox label
+        PatchCall((void*)CFormViewSetWindowPos7Addr, WeaponsSetWindowPos_Button); //Checkbox
 
         //DWORD CFromViewGetDlgItemCall = Hooks::scanPattern2("CFromViewGetDlgItemCall", "E8 B1 4B 09 00 89 45 C8");
         //CWndGetDlgItemTarget = CFromViewGetDlgItemCall + 5 + *(DWORD*)(CFromViewGetDlgItemCall + 1);
