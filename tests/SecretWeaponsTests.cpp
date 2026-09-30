@@ -29,14 +29,14 @@ static void SchemeTests()
     const std::vector<BYTE> expected(payload, payload + SW::NativeSchemePayloadSize);
     SW::originalRead = TestRead;
     SW::originalWrite = TestWrite;
-    for (int stock : { 0, 1, 9, 10 })
+    for (int stock : { 0, 1, 9, 10, 11, 99, 100 })
     {
         FILE* stream = nullptr;
         Check(fopen_s(&stream, "Release/secret-weapons-test.wep", "w+b") == 0, "open scheme fixture");
         BYTE header[24]{};
         fwrite(header, 1, sizeof(header), stream);
         for (size_t i = 0; i < SW::Weapons.size(); ++i)
-            SW::secretStocks[i] = (stock + i) % 11;
+            SW::secretStocks[i] = (stock + i) % 101;
         const auto stocks = SW::secretStocks;
         Check(SW::WriteFile(payload, SW::WeaponRecordSize, SW::NativeWeaponCount, stream) == 38, "save payload");
         Check(ftell(stream) == 0x1504, "extension file length");
@@ -67,8 +67,8 @@ static void SchemeTests()
         SW::SchemeExtension extension{ { 'P', 'L', 'U', 'S' }, {} };
         extension.stocks.fill(7);
         if (malformed == 1) extension.magic[0] = 'X';
-        if (malformed == 2) extension.stocks.front() = 11;
-        if (malformed == 3) extension.stocks.back() = 11;
+        if (malformed == 2) extension.stocks.front() = 101;
+        if (malformed == 3) extension.stocks.back() = 101;
         if (malformed >= 1 && malformed <= 4)
             fwrite(&extension, 1, malformed == 4 ? 8 : sizeof(extension), stream);
         fflush(stream);
@@ -141,10 +141,10 @@ static void NetworkTests()
         *reinterpret_cast<uint32_t*>(SW::image + 0x188b14) = reliable;
         for (int broadcast : { 0, 1 })
         {
-            for (int stock : { 0, 1, 9, 10 })
+            for (int stock : { 0, 1, 9, 10, 11, 99, 100 })
             {
                 for (size_t i = 0; i < SW::Weapons.size(); ++i)
-                    SW::secretStocks[i] = (stock + i) % 11;
+                    SW::secretStocks[i] = (stock + i) % 101;
                 const auto hostStocks = SW::secretStocks;
                 if (broadcast)
                     SW::SendWeaponPacketToAll(lobby.data(), nullptr, host, native.data(), native.size());
@@ -175,7 +175,7 @@ static void NetworkTests()
             SW::secretStocks.fill(0); // Default must clear clients too.
             SW::SendWeaponPacketToAll(lobby.data(), nullptr, host, native.data(), native.size());
             if (malformed == 1) sentPacket.resize(native.size()); // Unmodified host.
-            if (malformed == 2) sentPacket.back() = 1; // Last DWORD > 10.
+            if (malformed == 2) sentPacket.back() = 1; // Last DWORD > 100.
             if (malformed == 3) sentPacket[native.size()] = 'X';
             if (malformed == 4) sentPacket.resize(sentPacket.size() - 4);
             if (malformed == 5) sentPacket.push_back(0);
@@ -229,11 +229,11 @@ static void StockTests()
         Check(SW::Weapons[i].stockOffset == offsets[i] && SW::Weapons[i].stringId == 4938 + i,
             "catalog matches supplied offsets and consecutive resource IDs");
     SW::originalPrepareStocks = reinterpret_cast<SW::PrepareStocks>(NativePrepare);
-    for (int stock : { 0, 1, 9, 10 })
+    for (int stock : { 0, 1, 9, 10, 11, 99, 100 })
     {
         std::vector<BYTE> object(0xcf0, 0x65);
         for (size_t i = 0; i < SW::Weapons.size(); ++i)
-            SW::secretStocks[i] = (stock + i) % 11;
+            SW::secretStocks[i] = (stock + i) % 101;
         SW::PrepareWeaponStocks(object.data(), nullptr, 0);
         for (size_t team = 0; team < 6; ++team)
         {
@@ -409,6 +409,13 @@ static void EditorTests()
     std::array<BYTE, 0x30> pageObject{};
     auto page = CreateWindowW(L"STATIC", L"Native page", WS_CHILD | WS_VISIBLE,
         170, 10, 360, 260, window, nullptr, nullptr, nullptr);
+    const std::array<HWND, 3> nativeStockControls{
+        CreateWindowW(L"STATIC", L"Initial stock", WS_CHILD | WS_VISIBLE,
+            9, 5, 190, 13, page, reinterpret_cast<HMENU>(5000), nullptr, nullptr),
+        CreateWindowW(TRACKBAR_CLASSW, L"", WS_CHILD | WS_VISIBLE | TBS_TOP,
+            9, 23, 252, 34, page, reinterpret_cast<HMENU>(5001), nullptr, nullptr),
+        CreateWindowW(L"STATIC", L"0", WS_CHILD | WS_VISIBLE,
+            270, 27, 78, 13, page, reinterpret_cast<HMENU>(5002), nullptr, nullptr) };
     *reinterpret_cast<HWND*>(object.data() + 0x1c) = window;
     *reinterpret_cast<HWND*>(object.data() + 0x25c + 0x1c) = list;
     *reinterpret_cast<void**>(object.data() + 0xa4) = pageObject.data();
@@ -429,6 +436,29 @@ static void EditorTests()
     SW::Attach(object.data());
     Check(SendMessageW(list, LB_GETCOUNT, 0, 0) == 46, "no duplicate attachment");
     Check(GetWindowLongW(editor->slider, GWL_STYLE) & TBS_TOP, "upward thumb with ticks above");
+    const std::array<HWND, 3> generatedStockControls{
+        GetDlgItem(editor->panel, 5000), editor->slider, editor->value };
+    for (size_t i = 0; i < nativeStockControls.size(); ++i)
+    {
+        RECT nativeBounds{}, generatedBounds{};
+        Check(GetWindowRect(nativeStockControls[i], &nativeBounds) &&
+            GetWindowRect(generatedStockControls[i], &generatedBounds) && EqualRect(&nativeBounds, &generatedBounds),
+            "generated stock label, trackbar and value match native screen positions and sizes");
+    }
+    Check(SendMessageW(editor->slider, TBM_GETRANGEMIN, 0, 0) == 0 &&
+        SendMessageW(editor->slider, TBM_GETRANGEMAX, 0, 0) == 100, "stock slider allows zero through 100");
+    SendMessageW(list, LB_SETCURSEL, 38, 0);
+    SW::SelectWeapon(object.data(), nullptr);
+    for (int stock : { 10, 11, 100 })
+    {
+        SendMessageW(editor->slider, TBM_SETPOS, TRUE, stock);
+        SendMessageW(editor->panel, WM_HSCROLL, TB_THUMBPOSITION, reinterpret_cast<LPARAM>(editor->slider));
+        char displayed[128]{};
+        GetWindowTextA(editor->value, displayed, sizeof(displayed));
+        const char* expected = stock == 10 ? "Unlimited" : stock == 11 ? "11" : "100";
+        Check(SW::secretStocks[0] == static_cast<uint32_t>(stock) && strcmp(displayed, expected) == 0,
+            "10 remains Unlimited; larger stock values display as numbers");
+    }
     for (size_t i = 0; i < SW::Weapons.size(); ++i)
     {
         char name[128]{};

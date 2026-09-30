@@ -1,7 +1,7 @@
 # Secret weapon stock editor
 
 The weapon editor (dialog 200) now has eight secret entries, each with its own
-stock slider: 0–9, followed by Unlimited. This implementation exposes stock only; it does
+stock slider: 0–100, with 10 displayed as Unlimited. This implementation exposes stock only; it does
 not add power, delay, or crate-probability settings for secret weapons.
 
 The implementation lives in `fkSettings/SecretWeapons.cpp`. It uses the
@@ -24,6 +24,9 @@ thumbs and tick marks above the track (`TBS_TOP`), matching the native pages.
 The stock label uses string 5000 ("Initial stock" in English). The separate
 weapon-name heading is omitted, and the panel and its controls share the
 standard button-face background used by the native weapon pages.
+The generated label, trackbar, and stock value copy the screen rectangles of
+native controls 5000–5002, preserving their placement, size, and font scaling.
+Trackbar ticks occur every 10 stocks across the extended range.
 
 ## Native editor storage
 
@@ -69,7 +72,7 @@ count. Extended files append these 36 bytes, making them 5,380 bytes (`0x1504`):
 | File offset | Size | Value |
 | --- | --- | --- |
 | `0x14E0` | 4 | ASCII `PLUS` |
-| `0x14E4` | 32 | Eight little-endian 32-bit stocks, 0–10, in the order above |
+| `0x14E4` | 32 | Eight little-endian 32-bit stocks, 0–100, in the order above |
 
 10 represents Unlimited in this extension. Loading a legacy scheme, a short
 extension, an unrecognized signature, or any invalid stock resets all secret stocks
@@ -95,7 +98,7 @@ the `0xCD4`-byte game-data payload. Consequently, the hook changes object offset
 `stockOffset + 0x1C` for each first-team weapon (`0x4BE` for Sheep Strike).
 It runs after native stock preparation, before the
 data is consumed or serialized, rather than modifying a file after it is saved.
-The stock byte is 0–9, or `0xFF` for Unlimited. Native all-weapons cheat and
+The stock byte is 0–100, with 10 replaced by `0xFF` for Unlimited. Native all-weapons cheat and
 stock-replenishment behavior are preserved.
 
 ## Online weapon schemes
@@ -234,6 +237,13 @@ returning emitted eight zeros. The outgoing buffers were observed at the
 native broadcast sender after the DLL extension was appended. The trace is
 in the ignored `Release/frontend-network.log`. No second client or game-engine
 session was present during this host-side check.
+
+The extended stock range and layout were checked live on 2026-09-30. Switching
+between Bazooka and Magic Bullet showed matching stock-label placement and
+trackbar width. End on the generated slider displayed 100; stepping from 12
+to 11 displayed 11, then stepping to 10 displayed Unlimited. Default restored
+zero afterward. Regression checks also cover saving/loading and transferring
+stocks of 11, 99, and 100, with 101 rejected as invalid.
 
 For a live check, load the built DLL through the game's existing frontend DLL
 loader, open Weapons, select Sheep Strike, and set stock to 3. Save a scheme,

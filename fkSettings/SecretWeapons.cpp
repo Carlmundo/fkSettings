@@ -40,9 +40,10 @@ namespace
     constexpr size_t TeamStride = 0x108;
     constexpr int TeamCount = 6;
     constexpr int StockControlId = 50002;
+    constexpr uint32_t MaximumStock = 100;
     constexpr wchar_t ContextProperty[] = L"fkSettings.SecretWeapons";
     BYTE* image = nullptr;
-    std::array<uint32_t, Weapons.size()> secretStocks{}; // 0..9; 10 is unlimited.
+    std::array<uint32_t, Weapons.size()> secretStocks{}; // 0..100; 10 is unlimited.
     std::vector<HWND> editorWindows;
 
     bool IsSecretSelection(int index)
@@ -264,13 +265,32 @@ namespace
         editor->panel = CreateWindowExW(WS_EX_CONTROLPARENT, L"STATIC", L"",
             WS_CHILD | WS_CLIPCHILDREN, rect.left, rect.top, rect.right - rect.left,
             rect.bottom - rect.top, window, nullptr, instance, nullptr);
-        RECT layout{ 4, 2, 230, 10 };
-        MapDialogRect(window, &layout);
+        // These fallback rectangles are the native stock row's dialog units.
+        // Prefer the live native controls: their page origin and font scaling
+        // have already been applied by the frontend's layout code.
+        std::array<RECT, 3> stockRects{{ { 7, 0, 129, 8 }, { 7, 12, 169, 34 }, { 175, 14, 225, 22 } }};
+        for (auto& stockRect : stockRects) MapDialogRect(window, &stockRect);
+        for (int i = 0; i < NativeWeaponCount; ++i)
+        {
+            auto page = *reinterpret_cast<void**>(static_cast<BYTE*>(object) + 0xa4 + i * 4);
+            if (!page) continue;
+            HWND pageWindow = ObjectWindow(page);
+            const std::array<HWND, 3> controls{
+                GetDlgItem(pageWindow, 5000), GetDlgItem(pageWindow, 5001), GetDlgItem(pageWindow, 5002) };
+            if (std::any_of(controls.begin(), controls.end(), [](HWND control) { return !control; })) continue;
+            for (size_t control = 0; control < controls.size(); ++control)
+            {
+                GetWindowRect(controls[control], &stockRects[control]);
+                MapWindowPoints(nullptr, editor->panel, reinterpret_cast<POINT*>(&stockRects[control]), 2);
+            }
+            break;
+        }
         auto create = [&](const char* type, const char* text, DWORD style,
-            int x, int y, int width, int height, int id = 0)
+            const RECT& bounds, int id)
         {
             HWND control = CreateWindowExA(0, type, text,
-                WS_CHILD | WS_VISIBLE | style, x, y, width, height, editor->panel,
+                WS_CHILD | WS_VISIBLE | style, bounds.left, bounds.top,
+                bounds.right - bounds.left, bounds.bottom - bounds.top, editor->panel,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), instance, nullptr);
             if (control)
                 SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
@@ -279,12 +299,10 @@ namespace
         char stockLabel[128] = {};
         if (!LoadStringA(instance, 5000, stockLabel, sizeof(stockLabel)))
             strcpy_s(stockLabel, "Initial stock");
-        const int stockY = layout.top;
-        create("STATIC", stockLabel, 0, layout.left, stockY, layout.right, layout.bottom);
+        create("STATIC", stockLabel, 0, stockRects[0], 5000);
         editor->slider = create(TRACKBAR_CLASSA, "", WS_TABSTOP | TBS_AUTOTICKS | TBS_TOP,
-            layout.left, stockY + layout.bottom, layout.right / 2, layout.bottom * 2, StockControlId);
-        editor->value = create("STATIC", "", 0, layout.left + layout.right / 2 + layout.left,
-            stockY + layout.bottom, layout.right / 3, layout.bottom);
+            stockRects[1], StockControlId);
+        editor->value = create("STATIC", "", 0, stockRects[2], 5002);
         if (!editor->panel || !editor->slider || !editor->value ||
             !SetPropW(window, ContextProperty, editor) ||
             !SetWindowSubclass(editor->panel, PanelProc, 1, reinterpret_cast<DWORD_PTR>(editor)) ||
@@ -295,7 +313,8 @@ namespace
             delete editor;
             return;
         }
-        SendMessageW(editor->slider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 10));
+        SendMessageW(editor->slider, TBM_SETRANGE, TRUE, MAKELPARAM(0, MaximumStock));
+        SendMessageW(editor->slider, TBM_SETTICFREQ, 10, 0);
         Refresh(*editor);
         bool appended = true;
         for (size_t i = 0; i < Weapons.size(); ++i)
@@ -402,7 +421,7 @@ namespace
     bool ValidExtension(const SchemeExtension& extension)
     {
         return memcmp(extension.magic, "PLUS", 4) == 0 &&
-            std::all_of(extension.stocks.begin(), extension.stocks.end(), [](uint32_t stock) { return stock <= 10; });
+            std::all_of(extension.stocks.begin(), extension.stocks.end(), [](uint32_t stock) { return stock <= MaximumStock; });
     }
 
     constexpr uint32_t WeaponSchemePacketType = 0x18;
