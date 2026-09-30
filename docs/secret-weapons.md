@@ -98,6 +98,34 @@ data is consumed or serialized, rather than modifying a file after it is saved.
 The stock byte is 0–9, or `0xFF` for Unlimited. Native all-weapons cheat and
 stock-replenishment behavior are preserved.
 
+## Online weapon schemes
+
+The native lobby sends weapon schemes as packet type `0x18`: a four-byte type
+and 38 compressed records of 42 bytes, totaling 1,600 bytes (`0x640`). The DLL
+appends the same 36-byte `PLUS` extension used in `.wep` files, making the
+packet 1,636 bytes (`0x664`). Its original 1,600 bytes are copied unchanged.
+Both broadcasts after edits and targeted transfers to joining players include
+all eight stocks, including zeros for Default. Other packet types are unchanged.
+
+The lobby receive dispatcher exposes both sender and length. The DLL accepts
+secret stocks from the lobby's current host (object offset `0x163C`) before
+native weapon processing, then refreshes attached stock panels. This replaces
+the joining player's local stocks so subsequent game-data preparation uses the
+host's values. An absent, malformed, or invalid host extension clears all eight
+stocks; a truncated native weapon packet is dropped before the native decoder.
+
+The native reliable receiver (`0x12BC2`) skips its sequence DWORD in the returned
+pointer but retains it in the reported length. When transport mode at
+`0x188B14` is 1, the parser subtracts four bytes before validating the extension.
+The raw receiver (`0x12B6C`) returns the payload length directly. Extension reads
+are bounded in both modes. Reception runs in the lobby's UI-thread polling loop.
+
+Secret edits already send `WM_USER + 23`, which sets the online lobby's pending
+weapon-scheme flag. Returning from Weapon editor therefore follows the normal
+scheme broadcast path without setting the unsafe native page-commit flag.
+All participants need this DLL build to receive custom secret stocks. There is
+no separate secret-stock message or `.wep` format change in this update.
+
 ## Supported executable and hook locations
 
 This first implementation targets the supplied 32-bit frontend:
@@ -120,6 +148,9 @@ Locations are relative to the executable's loaded image base:
 | `0x97BD0` | Native CRT `fread` |
 | `0x975B0` | Native CRT `fwrite` |
 | `0x2882F` | Prepare team weapon stocks |
+| `0x1E29A` | Targeted lobby packet sender |
+| `0x1E3C4` | Broadcast lobby packet sender |
+| `0x39E41` | Lobby receive dispatcher (sender, packet, length) |
 | `0x187648` | Native weapon records |
 | `0x1B4E6C` | Native weapon scheme dirty flag |
 
@@ -152,7 +183,11 @@ with the stock slider focused, and checks ancestor-style restoration on close.
 When given an executable path, they also execute a relocated copy of its
 visibility handler with controlled callees, checking repeated Alt+Tab visibility
 transitions after editing a secret weapon and preserving pending normal-weapon
-edits. They map the supplied frontend without running it, install all seven
+edits. Network fixtures exercise targeted and broadcast transfer, both receive
+length conventions, host authority, Default, invalid/truncated extensions, and
+the resulting stocks for every weapon on all six client teams. Guard pages
+check that short trailers cannot cause reads beyond the receive buffer.
+They map the supplied frontend without running it, install all ten
 MinHook detours, and verify that uninitializing MinHook restores the original
 code. Hook changes stay private to that mapping;
 the executable file is never modified. They do not run the actual frontend or
@@ -189,6 +224,17 @@ loaded `fk-secrets-0930` scheme retained that name in Weapon editor, while
 Game controls displayed "User defined". Returning to Weapon editor still showed
 the original selected scheme name and enabled Delete, matching native edits.
 
+Online host-side verification on 2026-09-30 used the new DLL in
+`D:\Games\Worms 2`, with CDB attached. Following Network play, Internet,
+Create room (`PLUS test`), and Create a game opened the online weapon editor.
+Changing only Magic Bullet stock to 4 and returning to Hosting game emitted
+a `0x664`-byte weapon packet with `PLUS` and stocks `[0,0,0,0,0,0,0,4]`.
+Setting Sheep Strike to 3 emitted `[0,0,3,0,0,0,0,4]`. Selecting Default and
+returning emitted eight zeros. The outgoing buffers were observed at the
+native broadcast sender after the DLL extension was appended. The trace is
+in the ignored `Release/frontend-network.log`. No second client or game-engine
+session was present during this host-side check.
+
 For a live check, load the built DLL through the game's existing frontend DLL
 loader, open Weapons, select Sheep Strike, and set stock to 3. Save a scheme,
 switch to Default, and reload it; the stock should return to 3. Start a local
@@ -197,5 +243,7 @@ Unlimited (`FF`) and with an existing legacy scheme (zero). Also switch back
 to the previously selected normal weapon and use Save/Default while Sheep
 Strike is selected.
 
-Multiplayer scheme negotiation and restoring extension settings from saved
-`.dat` games are outside this prototype's verified scope.
+Restoring extension settings from saved `.dat` games remains outside this
+prototype's verified scope. Live multiplayer verification is recorded separately
+from the controlled packet fixtures above; a complete game with a second updated
+client is required to confirm absence of desynchronization.

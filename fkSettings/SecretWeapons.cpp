@@ -58,6 +58,9 @@ namespace
     using Selection = int (__thiscall*)(void*);
     using PrepareStocks = void (__thiscall*)(void*, int);
     using LoadNativeString = BOOL (__thiscall*)(void*, UINT);
+    using SendToPlayer = void (__thiscall*)(void*, uint32_t, uint32_t, const void*, uint32_t);
+    using SendToAll = void (__thiscall*)(void*, uint32_t, const void*, uint32_t);
+    using ReceivePacket = void (__thiscall*)(void*, uint32_t, const void*, uint32_t);
     Read originalRead = nullptr;
     Write originalWrite = nullptr;
     Init originalInit = nullptr;
@@ -66,6 +69,9 @@ namespace
     Selection originalSelection = nullptr;
     PrepareStocks originalPrepareStocks = nullptr;
     LoadNativeString loadNativeString = nullptr;
+    SendToPlayer originalSendToPlayer = nullptr;
+    SendToAll originalSendToAll = nullptr;
+    ReceivePacket originalReceivePacket = nullptr;
 
     struct Editor
     {
@@ -393,6 +399,87 @@ namespace
     };
     static_assert(sizeof(SchemeExtension) == 36);
 
+    bool ValidExtension(const SchemeExtension& extension)
+    {
+        return memcmp(extension.magic, "PLUS", 4) == 0 &&
+            std::all_of(extension.stocks.begin(), extension.stocks.end(), [](uint32_t stock) { return stock <= 10; });
+    }
+
+    constexpr uint32_t WeaponSchemePacketType = 0x18;
+    constexpr size_t NativeWeaponPacketSize = 4 + NativeWeaponCount * 0x2a; // 0x640
+    using ExtendedWeaponPacket = std::array<BYTE, NativeWeaponPacketSize + sizeof(SchemeExtension)>;
+
+    bool IsWeaponPacket(const void* packet, uint32_t length)
+    {
+        uint32_t type = 0;
+        if (!packet || length < sizeof(type)) return false;
+        memcpy(&type, packet, sizeof(type));
+        return type == WeaponSchemePacketType;
+    }
+
+    bool ExtendWeaponPacket(const void* packet, uint32_t length, ExtendedWeaponPacket& extended)
+    {
+        if (length != NativeWeaponPacketSize || !IsWeaponPacket(packet, length)) return false;
+        memcpy(extended.data(), packet, NativeWeaponPacketSize);
+        const SchemeExtension extension{ { 'P', 'L', 'U', 'S' }, secretStocks };
+        memcpy(extended.data() + NativeWeaponPacketSize, &extension, sizeof(extension));
+        return true;
+    }
+
+    // Both transports copy the packet before returning, just as they do with
+    // the native serializer's stack buffer. Keep join-targeted and broadcast
+    // schemes identical, and leave every other packet untouched.
+    void __fastcall SendWeaponPacketToPlayer(void* object, void*, uint32_t session,
+        uint32_t player, const void* packet, uint32_t length)
+    {
+        ExtendedWeaponPacket extended;
+        if (ExtendWeaponPacket(packet, length, extended))
+            originalSendToPlayer(object, session, player, extended.data(), static_cast<uint32_t>(extended.size()));
+        else
+            originalSendToPlayer(object, session, player, packet, length);
+    }
+
+    void __fastcall SendWeaponPacketToAll(void* object, void*, uint32_t session,
+        const void* packet, uint32_t length)
+    {
+        ExtendedWeaponPacket extended;
+        if (ExtendWeaponPacket(packet, length, extended))
+            originalSendToAll(object, session, extended.data(), static_cast<uint32_t>(extended.size()));
+        else
+            originalSendToAll(object, session, packet, length);
+    }
+
+    void __fastcall ReceiveWeaponPacket(void* object, void*, uint32_t sender,
+        const void* packet, uint32_t length)
+    {
+        // Reliable receive (0x12bc2) advances past its sequence DWORD without
+        // subtracting it from the reported length. Raw receive (0x12b6c) does
+        // neither. Bound all extension reads by the actual payload length.
+        const bool reliable = *reinterpret_cast<uint32_t*>(image + 0x188b14) == 1;
+        const uint32_t payloadLength = reliable ? (length >= 4 ? length - 4 : 0) : length;
+        if (!IsWeaponPacket(packet, payloadLength))
+        {
+            originalReceivePacket(object, sender, packet, length);
+            return;
+        }
+        // This lobby dispatcher runs on the UI thread and receives the real
+        // transport length. The native weapon decoder itself has no length.
+        if (payloadLength < NativeWeaponPacketSize) return;
+        const uint32_t host = *reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0x163c);
+        if (sender == host)
+        {
+            secretStocks.fill(0);
+            if (payloadLength == std::tuple_size<ExtendedWeaponPacket>::value)
+            {
+                SchemeExtension extension;
+                memcpy(&extension, static_cast<const BYTE*>(packet) + NativeWeaponPacketSize, sizeof(extension));
+                if (ValidExtension(extension)) secretStocks = extension.stocks;
+            }
+        }
+        originalReceivePacket(object, sender, packet, static_cast<uint32_t>(NativeWeaponPacketSize));
+        if (sender == host) RefreshEditors();
+    }
+
     size_t __cdecl ReadFile(void* buffer, size_t size, size_t count, void* stream)
     {
         const size_t result = originalRead(buffer, size, count, stream);
@@ -403,8 +490,7 @@ namespace
             {
                 SchemeExtension extension{};
                 if (originalRead(&extension, 1, sizeof(extension), stream) == sizeof(extension) &&
-                    memcmp(extension.magic, "PLUS", 4) == 0 &&
-                    std::all_of(extension.stocks.begin(), extension.stocks.end(), [](uint32_t stock) { return stock <= 10; }))
+                    ValidExtension(extension))
                     secretStocks = extension.stocks;
             }
             RefreshEditors();
@@ -477,6 +563,9 @@ bool InstallInImage(BYTE* frontendImage)
         { 0x97bd0, "\x56\x8b\x74\x24\x14\x57\x56\xe8\x54\x6b\x00\x00", 12, reinterpret_cast<void*>(ReadFile), reinterpret_cast<void**>(&originalRead) },
         { 0x975b0, "\x56\x8b\x74\x24\x14\x57\x56\xe8\x74\x71\x00\x00", 12, reinterpret_cast<void*>(WriteFile), reinterpret_cast<void**>(&originalWrite) },
         { 0x2882f, "\x55\x8b\xec\x6a\xff\x68", 6, reinterpret_cast<void*>(PrepareWeaponStocks), reinterpret_cast<void**>(&originalPrepareStocks) },
+        { 0x1e29a, "\x55\x8b\xec\x83\xec\x0c\x89\x4d\xf4", 9, reinterpret_cast<void*>(SendWeaponPacketToPlayer), reinterpret_cast<void**>(&originalSendToPlayer) },
+        { 0x1e3c4, "\x55\x8b\xec\x83\xec\x0c\x89\x4d\xf4", 9, reinterpret_cast<void*>(SendWeaponPacketToAll), reinterpret_cast<void**>(&originalSendToAll) },
+        { 0x39e41, "\x55\x8b\xec\x6a\xff\x68\x6d\xa0\x4e\x00", 10, reinterpret_cast<void*>(ReceiveWeaponPacket), reinterpret_cast<void**>(&originalReceivePacket) },
     };
     if (memcmp(image + 0xc5b02, "\x55\x8b\xec\x81\xec\x04\x01\x00\x00", 9) != 0)
         return false;
