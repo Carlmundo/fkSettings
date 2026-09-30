@@ -74,6 +74,12 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <OutDir>D:\Games\Worms 2</OutDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <OutDir>D:\Games\Worms 2</OutDir>
+  </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <VcpkgUseStatic>false</VcpkgUseStatic>
   </PropertyGroup>
@@ -157,6 +163,7 @@
   <ItemGroup>
     <ClInclude Include="CDButton.h" />
     <ClInclude Include="Hooks.h" />
+    <ClInclude Include="SecretWeapons.h" />
     <ClInclude Include="libs\hacklib\ExeFile.h" />
     <ClInclude Include="libs\hacklib\Handles.h" />
     <ClInclude Include="libs\hacklib\Memory.h" />
@@ -167,6 +174,7 @@
     <ClCompile Include="CDButton.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="Hooks.cpp" />
+    <ClCompile Include="SecretWeapons.cpp" />
     <ClCompile Include="libs\hacklib\ExeFile.cpp" />
     <ClCompile Include="libs\hacklib\ExeFile_WIN32.cpp" />
     <ClCompile Include="libs\hacklib\Memory_WIN32.cpp" />

@@ -13,6 +13,7 @@ extern "C" { int __afxForceUSRDLL; }
 
 #include "include/MinHook.h"
 #include "Hooks.h"
+#include "SecretWeapons.h"
 
 #include <sstream>
 #include <fstream>
@@ -624,6 +625,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         //ObtainWeaponParamIDAddrRet = CFromViewGetDlgItemCall + 8;
 
 		//Hooks::hookAsm(CFromViewGetDlgItemCall, (DWORD)ObtainWeaponParamID);
+
+        if (!SecretWeapons::Install())
+            OutputDebugStringA("fkSettings: secret weapon editor is unavailable for this frontend build.\n");
 
         Initialized = true;
 
