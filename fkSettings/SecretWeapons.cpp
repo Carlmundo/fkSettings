@@ -10,6 +10,7 @@ typedef struct IUnknown IUnknown;
 #include <vector>
 #include "include/MinHook.h"
 #include "SecretWeapons.h"
+#include "NetworkTeams.h"
 
 #pragma comment(lib, "comctl32.lib")
 
@@ -448,14 +449,17 @@ namespace
     }
 
     // Both transports copy the packet before returning, just as they do with
-    // the native serializer's stack buffer. Keep join-targeted and broadcast
-    // schemes identical, and leave every other packet untouched.
+    // the native serializer's stack buffer. Share these detours with network
+    // computer teams so weapon schemes and AI launch settings coexist.
     void __fastcall SendWeaponPacketToPlayer(void* object, void*, uint32_t session,
         uint32_t player, const void* packet, uint32_t length)
     {
         ExtendedWeaponPacket extended;
+        NetworkTeams::StartPacket start;
         if (ExtendWeaponPacket(packet, length, extended))
             originalSendToPlayer(object, session, player, extended.data(), static_cast<uint32_t>(extended.size()));
+        else if (NetworkTeams::ExtendStartPacket(packet, length, start))
+            originalSendToPlayer(object, session, player, start.data(), static_cast<uint32_t>(start.size()));
         else
             originalSendToPlayer(object, session, player, packet, length);
     }
@@ -464,8 +468,11 @@ namespace
         const void* packet, uint32_t length)
     {
         ExtendedWeaponPacket extended;
+        NetworkTeams::StartPacket start;
         if (ExtendWeaponPacket(packet, length, extended))
             originalSendToAll(object, session, extended.data(), static_cast<uint32_t>(extended.size()));
+        else if (NetworkTeams::ExtendStartPacket(packet, length, start))
+            originalSendToAll(object, session, start.data(), static_cast<uint32_t>(start.size()));
         else
             originalSendToAll(object, session, packet, length);
     }
@@ -478,6 +485,11 @@ namespace
         // neither. Bound all extension reads by the actual payload length.
         const bool reliable = *reinterpret_cast<uint32_t*>(image + 0x188b14) == 1;
         const uint32_t payloadLength = reliable ? (length >= 4 ? length - 4 : 0) : length;
+        const uint32_t host = *reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0x163c);
+        NetworkTeams::ReceiveStartPacket(sender, host, packet, payloadLength);
+        uint32_t packetType = 0;
+        if (packet && payloadLength >= sizeof(packetType)) memcpy(&packetType, packet, sizeof(packetType));
+        if (packetType == 14 && payloadLength < NetworkTeams::NativeStartPacketSize) return;
         if (!IsWeaponPacket(packet, payloadLength))
         {
             originalReceivePacket(object, sender, packet, length);
@@ -486,7 +498,6 @@ namespace
         // This lobby dispatcher runs on the UI thread and receives the real
         // transport length. The native weapon decoder itself has no length.
         if (payloadLength < NativeWeaponPacketSize) return;
-        const uint32_t host = *reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0x163c);
         if (sender == host)
         {
             secretStocks.fill(0);

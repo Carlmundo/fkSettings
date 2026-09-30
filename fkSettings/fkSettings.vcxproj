@@ -164,6 +164,7 @@
     <ClInclude Include="CDButton.h" />
     <ClInclude Include="Hooks.h" />
     <ClInclude Include="SecretWeapons.h" />
+    <ClInclude Include="NetworkTeams.h" />
     <ClInclude Include="libs\hacklib\ExeFile.h" />
     <ClInclude Include="libs\hacklib\Handles.h" />
     <ClInclude Include="libs\hacklib\Memory.h" />
@@ -175,6 +176,7 @@
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="Hooks.cpp" />
     <ClCompile Include="SecretWeapons.cpp" />
+    <ClCompile Include="NetworkTeams.cpp" />
     <ClCompile Include="libs\hacklib\ExeFile.cpp" />
     <ClCompile Include="libs\hacklib\ExeFile_WIN32.cpp" />
     <ClCompile Include="libs\hacklib\Memory_WIN32.cpp" />

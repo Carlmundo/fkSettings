@@ -18,6 +18,7 @@ extern "C" { int __afxForceUSRDLL; }
 #include "include/MinHook.h"
 #include "Hooks.h"
 #include "SecretWeapons.h"
+#include "NetworkTeams.h"
 
 #include <sstream>
 #include <fstream>
@@ -881,6 +882,8 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 
         if (!SecretWeapons::Install())
             OutputDebugStringA("fkSettings: secret weapon editor is unavailable for this frontend build.\n");
+        else if (!NetworkTeams::Install())
+            OutputDebugStringA("fkSettings: network computer teams are unavailable for this frontend build.\n");
 
         Initialized = true;
 

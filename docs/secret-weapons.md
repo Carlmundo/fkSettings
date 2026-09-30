@@ -113,7 +113,9 @@ and 38 compressed records of 42 bytes, totaling 1,600 bytes (`0x640`). The DLL
 appends the same 36-byte `PLUS` extension used in `.wep` files, making the
 packet 1,636 bytes (`0x664`). Its original 1,600 bytes are copied unchanged.
 Both broadcasts after edits and targeted transfers to joining players include
-all eight stocks, including zeros for Default. Other packet types are unchanged.
+all eight stocks, including zeros for Default. The separate
+[network computer-team feature](network-teams.md) also uses these shared hooks
+to extend start packets when needed.
 
 The lobby receive dispatcher exposes both sender and length. The DLL accepts
 secret stocks from the lobby's current host (object offset `0x163C`) before
