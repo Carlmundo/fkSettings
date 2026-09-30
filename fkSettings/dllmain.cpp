@@ -575,6 +575,22 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
                 return returnVal;
             }
         }
+        // Music options - give track rows more room at high DPI.
+        if (lastFoundResourceName == MAKEINTRESOURCEA(208) && scale > 1)
+        {
+            HWND trackList = ::GetDlgItem(returnVal, 2092);
+            if (trackList) {
+                LRESULT itemHeight = SendMessageA(trackList, LB_GETITEMHEIGHT, 0, 0);
+                if (itemHeight > 0) {
+                    int scaledHeight = (int)round(itemHeight * scale);
+                    // LB_SETITEMHEIGHT accepts heights up to 255 pixels.
+                    if (scaledHeight > 255)
+                        scaledHeight = 255;
+                    SendMessageA(trackList, LB_SETITEMHEIGHT, 0, scaledHeight);
+                    InvalidateRect(trackList, NULL, TRUE);
+                }
+            }
+        }
         // Team Editor dialog - Add play button for soundbanks
         if (lastFoundResourceName == MAKEINTRESOURCEA(131))
         {
