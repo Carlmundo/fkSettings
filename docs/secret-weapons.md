@@ -27,6 +27,11 @@ standard button-face background used by the native weapon pages.
 The generated label, trackbar, and stock value copy the screen rectangles of
 native controls 5000–5002, preserving their placement, size, and font scaling.
 Trackbar ticks occur every 10 stocks across the extended range.
+The generated trackbar uses native control ID 5001. The editor's existing
+cursor handler loads hints from the hovered control ID plus 500, so this
+displays string 5501 in the bottom hint area, just like a normal weapon's
+Initial stock trackbar. Hint switching remains managed by the frontend's
+existing cursor handler.
 
 ## Native editor storage
 
@@ -244,6 +249,12 @@ trackbar width. End on the generated slider displayed 100; stepping from 12
 to 11 displayed 11, then stepping to 10 displayed Unlimited. Default restored
 zero afterward. Regression checks also cover saving/loading and transferring
 stocks of 11, 99, and 100, with 101 rejected as invalid.
+
+The stock hint was checked live on 2026-09-30. Hovering Bazooka's stock trackbar
+displayed string 5501, "The stock available at the start of a round."
+Returning to Weapon editor with Magic Bullet selected restored the general
+page hint; hovering its generated stock trackbar then displayed the same text.
+Hover testing left its stock at zero.
 
 For a live check, load the built DLL through the game's existing frontend DLL
 loader, open Weapons, select Sheep Strike, and set stock to 3. Save a scheme,

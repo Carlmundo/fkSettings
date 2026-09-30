@@ -39,7 +39,9 @@ namespace
     constexpr size_t GameObjectHeaderSize = 0x1c;
     constexpr size_t TeamStride = 0x108;
     constexpr int TeamCount = 6;
-    constexpr int StockControlId = 50002;
+    // The native editor's cursor handler loads control ID + 500 as the hint.
+    // Reuse the normal stock trackbar ID so it displays string 5501 too.
+    constexpr int StockControlId = 5001;
     constexpr uint32_t MaximumStock = 100;
     constexpr wchar_t ContextProperty[] = L"fkSettings.SecretWeapons";
     BYTE* image = nullptr;
