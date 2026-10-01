@@ -1,13 +1,26 @@
-﻿typedef struct IUnknown IUnknown;
+#ifndef WINVER
+#define WINVER 0x0501
+#endif
+
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0501
+#endif
+
+#ifndef NTDDI_VERSION
+#define NTDDI_VERSION 0x05010300
+#endif
+
+typedef struct IUnknown IUnknown;
 
 #include <afxwin.h>         // MFC core and standard components
 #include <afxext.h>         // MFC extensions
 #include "winerror.h"
-#include <filesystem>
 #include <mmsystem.h>
 #pragma comment(lib, "winmm.lib")
 #include <array>
-#include <random>
+#include <string>
+#include <vector>
+#include <cstdio>
 
 #ifdef _X86_
 extern "C" { int _afxForceUSRDLL; }
@@ -44,6 +57,84 @@ bool overrideAddressBook = false;
 bool reposExitButton = true;
 bool reposHintText = true;
 
+// Windows XP compatible file/path helpers: FileExists, GetFrontendDirectory, BuildSpeechPath
+bool FileExists(const char* path)
+{
+    if (!path || !*path)
+        return false;
+    DWORD attributes = GetFileAttributesA(path);
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+bool GetFrontendDirectory(char* outPath, size_t outPathSize)
+{
+    if (!outPath || outPathSize == 0)
+        return false;
+    outPath[0] = '\0';
+
+    DWORD length = GetModuleFileNameA(NULL, outPath, static_cast<DWORD>(outPathSize));
+    if (length == 0 || length >= outPathSize)
+    {
+        outPath[0] = '\0';
+        return false;
+    }
+
+    char* lastSlash = strrchr(outPath, '\\');
+    if (!lastSlash)
+        lastSlash = strrchr(outPath, '/');
+    if (!lastSlash)
+    {
+        outPath[0] = '.';
+        outPath[1] = '\0';
+        return true;
+    }
+    *lastSlash = '\0';
+    return true;
+}
+bool BuildSpeechPath(
+    char* outPath,
+    size_t outPathSize,
+    const char* gameDirectory,
+    const char* speechBank,
+    const char* defaultSpeechBank,
+    const char* wavFile)
+{
+    if (!outPath ||
+        outPathSize == 0 ||
+        !gameDirectory ||
+        !speechBank ||
+        !defaultSpeechBank ||
+        !wavFile)
+    {
+        return false;
+    }
+
+    int result = -1;
+
+    if (_stricmp(speechBank, defaultSpeechBank) == 0)
+    {
+        result = sprintf_s(
+            outPath,
+            outPathSize,
+            "%s\\Data\\Wav\\Speech\\%s",
+            gameDirectory,
+            wavFile
+        );
+    }
+    else
+    {
+        result = sprintf_s(
+            outPath,
+            outPathSize,
+            "%s\\Data\\Wav\\Speech\\%s\\%s",
+            gameDirectory,
+            speechBank,
+            wavFile
+        );
+    }
+
+    return result >= 0 && static_cast<size_t>(result) < outPathSize;
+}
+
 double GetDpiScaleFactor(HWND hwnd)
 {
     HDC hdc = GetDC(hwnd);
@@ -53,18 +144,27 @@ double GetDpiScaleFactor(HWND hwnd)
 }
 
 void PatchCall(void* callAddr, void* newFunc) {
-    DWORD oldProtect;
-    BYTE* p = (BYTE*)callAddr;
+    if (!callAddr || !newFunc)
+        return;
+
+    BYTE* p = static_cast<BYTE*>(callAddr);
 
     if (*p != 0xE8) return;
 
-    DWORD src = (DWORD)callAddr + 5;
-    DWORD dst = (DWORD)newFunc;
-    DWORD rel = dst - src;
+    DWORD oldProtect = 0;
 
-    VirtualProtect(p, 5, PAGE_EXECUTE_READWRITE, &oldProtect);
-    *(DWORD*)(p + 1) = rel;
-    VirtualProtect(p, 5, oldProtect, &oldProtect);
+    if (!VirtualProtect(p, 5, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        return;
+    }
+
+    DWORD src = reinterpret_cast<DWORD>(p) + 5;
+    DWORD dst = reinterpret_cast<DWORD>(newFunc);
+    *reinterpret_cast<DWORD*>(p + 1) = dst - src;
+    FlushInstructionCache(GetCurrentProcess(), p, 5);
+    DWORD ignored;
+
+    VirtualProtect(p, 5, oldProtect, &ignored);
 }
 
 namespace TabOrder
@@ -145,7 +245,7 @@ HRSRC WINAPI detourFindResourceA(HMODULE hModule, LPCSTR lpName, LPCSTR lpType)
 //Run the settings app if it exists
 void HandleButtonClick(HWND hWnd)
 {
-    bool exists = std::filesystem::exists("settings.exe");
+    bool exists = FileExists("settings.exe");
 
     if (exists)
     {
@@ -177,6 +277,41 @@ CWnd* hint;
 #define SPEECH_PLAY_BUTTON_ID 50001
 HWND speechComboBoxHwnd = nullptr;
 WNDPROC ogTeamEditorWndProc = nullptr;
+DWORD speechRandomState = 0;
+DWORD NextSpeechRandom()
+{
+    if (speechRandomState == 0)
+    {
+        LARGE_INTEGER counter = {};
+        DWORD seed =
+            GetTickCount() ^
+            GetCurrentProcessId() ^
+            GetCurrentThreadId() ^
+            static_cast<DWORD>(GetMessageTime());
+
+        if (QueryPerformanceCounter(&counter))
+        {
+            seed ^= counter.LowPart;
+            seed ^= counter.HighPart;
+        }
+        seed ^= static_cast<DWORD>(
+            reinterpret_cast<ULONG_PTR>(speechComboBoxHwnd)
+            );
+        // Xorshift cannot use zero as its state.
+        if (seed == 0)
+            seed = 0xA341316C;
+        speechRandomState = seed;
+    }
+
+    // xorshift32
+    DWORD x = speechRandomState;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    speechRandomState = x;
+
+    return x;
+}
 void PlaySpeechPreview() {
     if (!speechComboBoxHwnd || !::IsWindow(speechComboBoxHwnd)) {
         return;
@@ -190,13 +325,14 @@ void PlaySpeechPreview() {
         return;
     }
     std::string comboValue(textLength + 1, '\0');
-    SendMessageA(speechComboBoxHwnd, CB_GETLBTEXT, selectedIndex, (LPARAM)comboValue.data());
+    SendMessageA(speechComboBoxHwnd, CB_GETLBTEXT, selectedIndex, reinterpret_cast<LPARAM>(&comboValue[0]));
     comboValue.resize(textLength);
 
-    // Get current directory
-    char exePath[MAX_PATH] = {};
-    GetModuleFileNameA(NULL, exePath, MAX_PATH);
-    std::filesystem::path gameDirectory = std::filesystem::path(exePath).parent_path();
+    char gameDirectory[MAX_PATH] = {};
+    if (!GetFrontendDirectory(gameDirectory, sizeof(gameDirectory)))
+    {
+        return;
+    }
 
     // Get StringTable resource ID 99 - "Default", in English
     char strDefault[256] = {};
@@ -254,26 +390,26 @@ void PlaySpeechPreview() {
         "youllregretthat.wav"
     };
 
-    // Create the random generator once
-    static std::mt19937 rng(std::random_device{}());
-    std::uniform_int_distribution<size_t> distribution(0, speechFiles.size() - 1);
-    const char* randomFile = speechFiles[distribution(rng)];
+    const size_t randomIndex = static_cast<size_t>(NextSpeechRandom() % speechFiles.size());
 
-    std::filesystem::path wavPath;
-    if (_stricmp(comboValue.c_str(), strDefault) == 0) {
-        // Data\Wav\Speech\<random file>
-        wavPath = gameDirectory/"Data"/"Wav"/"Speech"/randomFile;
-    }
-    else {
-        // Data\Wav\Speech\{Name}\<random file>
-        wavPath = gameDirectory/"Data"/"Wav"/"Speech"/comboValue/randomFile;
-    }
+    const char* randomFile = speechFiles[randomIndex];
+    char wavPath[MAX_PATH] = {};
 
-    std::string fullPath = wavPath.string();
-    if (!std::filesystem::exists(wavPath)) {
+    if (!BuildSpeechPath(
+        wavPath,
+        sizeof(wavPath),
+        gameDirectory,
+        comboValue.c_str(),
+        strDefault,
+        randomFile))
+    {
         return;
     }
-    PlaySoundA(fullPath.c_str(), NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);    
+
+    if (!FileExists(wavPath))
+        return;
+
+    PlaySoundA(wavPath, NULL, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
 }
 LRESULT CALLBACK TeamEditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     if (message == WM_COMMAND) {
@@ -388,7 +524,7 @@ LRESULT CALLBACK NetworkPlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
                 if (IPXEnabled) 
                 {
                     //Run the custom IPX address book
-                    bool exists = std::filesystem::exists("ipxaddress.exe");
+                    bool exists = FileExists("ipxaddress.exe");
 
                     if (exists)
                     {
@@ -836,8 +972,8 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     {
     case DLL_PROCESS_ATTACH:
     {
-        createAdvancedOptions = std::filesystem::exists("settings.exe");
-        overrideAddressBook = std::filesystem::exists("ipxaddress.exe");
+        createAdvancedOptions = FileExists("settings.exe");
+        overrideAddressBook = FileExists("ipxaddress.exe");
 
         MH_STATUS status = MH_Initialize();
 
@@ -897,13 +1033,13 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 		//Hooks::hookAsm(CFromViewGetDlgItemCall, (DWORD)ObtainWeaponParamID);
 
         if (!SecretWeapons::Install())
-            OutputDebugStringA("fkSettings: secret weapon editor is unavailable for this frontend build.\n");
+            OutputDebugStringA("fkSettings: Secret weapon editor is unavailable.\n");
         else if (!NetworkTeams::Install())
-            OutputDebugStringA("fkSettings: network computer teams are unavailable for this frontend build.\n");
+            OutputDebugStringA("fkSettings: Network computer teams are unavailable.\n");
 
         Initialized = true;
 
-        if (std::filesystem::exists("language.txt")) 
+        if (FileExists("language.txt")) 
         {
             std::ifstream t("language.txt");
             std::stringstream buffer;

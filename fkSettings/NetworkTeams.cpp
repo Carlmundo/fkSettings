@@ -30,7 +30,7 @@ namespace
         char magic[4];
         std::array<ComputerTeam, 6> teams;
     };
-    static_assert(sizeof(Extension) == 112);
+    static_assert(sizeof(Extension) == 112, "Extension must be 112 bytes");
     BYTE* image = nullptr;
     bool enabled = false;
     std::array<ComputerTeam, 6> receivedTeams{};

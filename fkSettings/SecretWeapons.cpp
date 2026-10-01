@@ -19,6 +19,7 @@ namespace SecretWeapons
 namespace
 {
     constexpr int NativeWeaponCount = 38;
+    constexpr size_t SecretWeaponCount = 8;
     constexpr size_t WeaponRecordSize = 0x8c;
     constexpr size_t NativeSchemePayloadSize = NativeWeaponCount * WeaponRecordSize;
     struct Weapon
@@ -27,7 +28,7 @@ namespace
         UINT stringId;
         const char* fallbackName;
     };
-    constexpr std::array<Weapon, 8> Weapons{{
+    constexpr std::array<Weapon, SecretWeaponCount> Weapons{{
         { 0x49e, 4938, "Salvation Army" },
         { 0x49f, 4939, "MB Bomb" },
         { 0x4a2, 4940, "Sheep Strike" },
@@ -46,7 +47,7 @@ namespace
     constexpr uint32_t MaximumStock = 100;
     constexpr wchar_t ContextProperty[] = L"fkSettings.SecretWeapons";
     BYTE* image = nullptr;
-    std::array<uint32_t, Weapons.size()> secretStocks{}; // 0..100; 10 is unlimited.
+    std::array<uint32_t, SecretWeaponCount> secretStocks{}; // 0..100; 10 is unlimited.
     std::vector<HWND> editorWindows;
 
     bool IsSecretSelection(int index)
@@ -256,9 +257,12 @@ namespace
         // The native object has exactly 38 page pointers. Never enlarge that array.
         if (!list || !frame || GetEditor(window) || SendMessageW(list, LB_GETCOUNT, 0, 0) != NativeWeaponCount)
             return;
-        auto editor = new (std::nothrow) Editor{ object, window, list };
+        Editor* editor = new (std::nothrow) Editor();
         if (!editor)
             return;
+        editor->object = object;
+        editor->window = window;
+        editor->list = list;
         editor->nativeSelection = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
         RECT rect;
         GetWindowRect(frame, &rect);
@@ -417,9 +421,9 @@ namespace
     struct SchemeExtension
     {
         char magic[4];
-        std::array<uint32_t, Weapons.size()> stocks;
+        std::array<uint32_t, SecretWeaponCount> stocks;
     };
-    static_assert(sizeof(SchemeExtension) == 36);
+    static_assert(sizeof(SchemeExtension) == 36, "SchemeExtension must be 36 bytes");
 
     bool ValidExtension(const SchemeExtension& extension)
     {
@@ -443,7 +447,9 @@ namespace
     {
         if (length != NativeWeaponPacketSize || !IsWeaponPacket(packet, length)) return false;
         memcpy(extended.data(), packet, NativeWeaponPacketSize);
-        const SchemeExtension extension{ { 'P', 'L', 'U', 'S' }, secretStocks };
+        SchemeExtension extension = {};
+        memcpy(extension.magic, "PLUS", 4);
+        extension.stocks = secretStocks;
         memcpy(extended.data() + NativeWeaponPacketSize, &extension, sizeof(extension));
         return true;
     }
@@ -535,7 +541,9 @@ namespace
         const size_t result = originalWrite(buffer, size, count, stream);
         if (result == count && IsSchemePayload(buffer, size, count))
         {
-            const SchemeExtension extension{ { 'P', 'L', 'U', 'S' }, secretStocks };
+            SchemeExtension extension = {};
+            memcpy(extension.magic, "PLUS", 4);
+            extension.stocks = secretStocks;
             if (originalWrite(&extension, 1, sizeof(extension), stream) != sizeof(extension))
             {
                 OutputDebugStringA("fkSettings: failed to save secret weapon scheme extension.\n");
@@ -613,7 +621,8 @@ bool InstallInImage(BYTE* frontendImage)
             break;
         ++created;
     }
-    bool success = created == std::size(hooks);
+    const size_t hookCount = sizeof(hooks) / sizeof(hooks[0]);
+    bool success = created == hookCount;
     if (success)
         for (const auto& hook : hooks)
             if (MH_EnableHook(image + hook.rva) != MH_OK)

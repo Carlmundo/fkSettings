@@ -1,12 +1,165 @@
 //https://github.com/nizikawa-worms/wkJellyWorm/blob/master/src/Hooks.cpp
+//Modified to support Windows XP
 
 #include "Hooks.h"
+
+std::map<std::string, DWORD> Hooks::hookNameToAddr;
+std::map<DWORD, std::string> Hooks::hookAddrToName;
+
+std::map<std::string, DWORD> Hooks::scanNameToAddr;
+std::map<DWORD, std::string> Hooks::scanAddrToName;
+
+bool Hooks::scanFoundNew = false;
 
 #include <stdexcept>
 #include <sstream>
 #include <fstream>
-#include "libs/hacklib/PatternScanner.h"
 #include "include/MinHook.h"
+#include <vector>
+
+static int HexNibble(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+
+	return -1;
+}
+
+static bool ParsePattern(const char* pattern, std::vector<int>& bytes)
+{
+	bytes.clear();
+
+	if (!pattern)
+		return false;
+
+	const char* p = pattern;
+
+	while (*p)
+	{
+		while (*p == ' ')
+			++p;
+
+		if (!*p)
+			break;
+
+		if (*p == '?')
+		{
+			bytes.push_back(-1);
+
+			++p;
+
+			if (*p == '?')
+				++p;
+
+			continue;
+		}
+
+		int high = HexNibble(p[0]);
+
+		if (high < 0 || !p[1])
+			return false;
+
+		int low = HexNibble(p[1]);
+
+		if (low < 0)
+			return false;
+
+		bytes.push_back((high << 4) | low);
+
+		p += 2;
+	}
+
+	return !bytes.empty();
+}
+
+static DWORD FindPattern(const char* pattern)
+{
+	std::vector<int> patternBytes;
+
+	if (!ParsePattern(pattern, patternBytes))
+		return 0;
+
+	BYTE* image =
+		reinterpret_cast<BYTE*>(
+			GetModuleHandleA(NULL)
+			);
+
+	if (!image)
+		return 0;
+
+	IMAGE_DOS_HEADER* dos =
+		reinterpret_cast<IMAGE_DOS_HEADER*>(image);
+
+	if (dos->e_magic != IMAGE_DOS_SIGNATURE)
+		return 0;
+
+	IMAGE_NT_HEADERS* nt =
+		reinterpret_cast<IMAGE_NT_HEADERS*>(
+			image + dos->e_lfanew
+			);
+
+	if (nt->Signature != IMAGE_NT_SIGNATURE)
+		return 0;
+
+	IMAGE_SECTION_HEADER* section =
+		IMAGE_FIRST_SECTION(nt);
+
+	for (WORD s = 0;
+		s < nt->FileHeader.NumberOfSections;
+		++s, ++section)
+	{
+		// We only need executable code sections.
+		if (!(section->Characteristics &
+			IMAGE_SCN_MEM_EXECUTE))
+		{
+			continue;
+		}
+
+		BYTE* start =
+			image + section->VirtualAddress;
+
+		size_t sectionSize =
+			section->Misc.VirtualSize;
+
+		if (sectionSize < patternBytes.size())
+			continue;
+
+		for (size_t offset = 0;
+			offset <= sectionSize - patternBytes.size();
+			++offset)
+		{
+			bool match = true;
+
+			for (size_t i = 0;
+				i < patternBytes.size();
+				++i)
+			{
+				if (patternBytes[i] != -1 &&
+					start[offset + i] !=
+					static_cast<BYTE>(patternBytes[i]))
+				{
+					match = false;
+					break;
+				}
+			}
+
+			if (match)
+			{
+				return reinterpret_cast<DWORD>(
+					start + offset
+					);
+			}
+		}
+	}
+
+	return 0;
+}
 
 void Hooks::minhook(std::string name, DWORD pTarget, DWORD* pDetour, DWORD* ppOriginal) {
 	if (!pTarget)
@@ -121,7 +274,7 @@ void Hooks::hookVtable(const char* classname, int offset, DWORD addr, DWORD hook
 	int dest = hookAddr;
 	PatchMemData((PVOID)addr, sizeof(dest), &dest, sizeof(dest));
 }
-
+/*
 DWORD Hooks::scanPattern(const char* name, const char* pattern, const char* mask, DWORD expected) {
 	uintptr_t ret = 0;
 	//rebase offsets in cached file
@@ -152,34 +305,23 @@ DWORD Hooks::scanPattern(const char* name, const char* pattern, const char* mask
 
 	return ret;
 }
+*/
 
 DWORD Hooks::scanPattern2(const char* name, const char* pattern, DWORD expected) {
-	uintptr_t ret = 0;
-	//rebase offsets in cached file
-	//if (!hl::PatternScanner::WAregion.base) {
-	//	hl::FindPattern(pattern);
-	//	for (auto& it : scanNameToAddr) {
-	//		it.second = it.second + (hl::PatternScanner::WAregion.base - 0x401000);
-	//		scanAddrToName[it.second] = it.first;
-	//	}
-	//}
-	auto it = scanNameToAddr.find(name);
-	if (it == scanNameToAddr.end()) {
-		ret = hl::FindPattern(pattern);
-		printf("scanPattern: %s = 0x%X\n", name, ret);
-		if (!ret) {
-			std::string msg = "scanPattern: failed to find memory pattern: ";
-			msg += name;
-			throw std::runtime_error(msg);
-		}
-		scanNameToAddr[name] = ret;
-		scanAddrToName[ret] = name;
-		scanFoundNew = true;
-	}
-	else {
-		ret = it->second;//scanNameToAddr[name];
-		printf("scanCache: %s = 0x%X\n", name, ret);
+	DWORD address = FindPattern(pattern);
+	if (!address) {
+		char buffer[512];
+		sprintf_s(buffer, "fkSettings: pattern not found: %s\n", name ? name : "(unnamed)");
+		OutputDebugStringA(buffer);
+		return 0;
 	}
 
-	return ret;
+	scanNameToAddr[
+		name ? name : ""
+	] = address;
+
+	scanAddrToName[address] =
+		name ? name : "";
+
+	return address;
 }
