@@ -46,14 +46,8 @@ std::string lang;
 CButton advancedOptionsBtn;
 LPCTSTR advancedOptionsLabel;
 
-CWnd* tcpAddressDropdown;
-
 bool leftAlign = false;
-
-bool IPXEnabled = false;
-
 bool createAdvancedOptions = false;
-bool overrideAddressBook = false;
 bool reposExitButton = true;
 bool reposHintText = true;
 
@@ -266,11 +260,6 @@ void HandleButtonClick(HWND hWnd)
 //The pointer to the original window message processing function
 WNDPROC ogVideoOptWndProc = nullptr;
 
-WNDPROC ogNetworkPlayWndProc = nullptr;
-WNDPROC ogAddressBookWndProc = nullptr;
-WNDPROC ogIPXBtnWndProc = nullptr;
-WNDPROC ogTCPBtnWndProc = nullptr;
-
 CWnd* hint;
 
 //Soundbank Play button related
@@ -426,136 +415,6 @@ LRESULT CALLBACK TeamEditorWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARA
         ogTeamEditorWndProc = nullptr;
     }
     return result;
-}
-
-//Process the TCP button's incoming messages
-LRESULT CALLBACK TCPBtnWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    int wmId = LOWORD(wParam);
-    int wmEvent = HIWORD(wParam);
-
-    switch (message)
-    {
-    case WM_LBUTTONDOWN:
-    {
-        LRESULT result = CallWindowProc(ogTCPBtnWndProc, hWnd, message, wParam, lParam);
-        IPXEnabled = false;
-
-        if (tcpAddressDropdown != NULL)
-            tcpAddressDropdown->ShowWindow(true);
-        return result;
-    }
-    break;
-    default:
-        return CallWindowProc(ogTCPBtnWndProc, hWnd, message, wParam, lParam);
-    }
-    return 0;
-}
-
-//Process the IPX button's incoming messages
-LRESULT CALLBACK IPXBtnWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    int wmId = LOWORD(wParam);
-    int wmEvent = HIWORD(wParam);
-
-    switch (message)
-    {
-    case WM_LBUTTONDOWN:
-    {
-        LRESULT result = CallWindowProc(ogIPXBtnWndProc, hWnd, message, wParam, lParam);
-        IPXEnabled = true;
-
-        if (tcpAddressDropdown != NULL)
-            tcpAddressDropdown->ShowWindow(false);
-
-        return result;
-    }
-    break;
-    default:
-        return CallWindowProc(ogIPXBtnWndProc, hWnd, message, wParam, lParam);
-    }
-    return 0;
-}
-
-//Process the Address book button's incoming messages
-LRESULT CALLBACK AddressBookBtnWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    int wmId = LOWORD(wParam);
-    int wmEvent = HIWORD(wParam);
-
-    switch (message)
-    {
-    case WM_ENABLE:
-    {
-        //Prevent the frontend from disabling the address book button
-        LRESULT result = CallWindowProc(ogAddressBookWndProc, hWnd, message, wParam, lParam);
-
-        if(wmId == 0)
-            EnableWindow(hWnd, true);
-
-        return result;
-    }
-    break;
-    default:
-        return CallWindowProc(ogAddressBookWndProc, hWnd, message, wParam, lParam);
-    }
-    return 0;
-}
-
-//Process the Network Play tab's incoming messages
-LRESULT CALLBACK NetworkPlayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    int wmId = LOWORD(wParam);
-    int wmEvent = HIWORD(wParam);
-
-    switch (message)
-    {
-    case WM_COMMAND:
-    {
-        if (wmEvent == BN_CLICKED)
-        {
-            // Handle button click
-            HWND hButtonClicked = (HWND)lParam;
-
-            auto data = GetWindowLongPtr(hButtonClicked, GWLP_USERDATA);
-
-            //Address Book btn
-            if (wmId == 1243) {
-                if (IPXEnabled) 
-                {
-                    //Run the custom IPX address book
-                    bool exists = FileExists("ipxaddress.exe");
-
-                    if (exists)
-                    {
-                        STARTUPINFOA si;
-                        PROCESS_INFORMATION pi;
-
-                        ZeroMemory(&si, sizeof(si));
-                        si.cb = sizeof(si);
-                        ZeroMemory(&pi, sizeof(pi));
-
-                        CreateProcessA("ipxaddress.exe", NULL, NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi);
-
-                        CloseHandle(pi.hProcess);
-                        CloseHandle(pi.hThread);
-                    }
-                }
-                else
-                    return CallWindowProc(ogNetworkPlayWndProc, hWnd, message, wParam, lParam);
-            }
-            else //Something else has been clicked, let the frontend handle it
-                return CallWindowProc(ogNetworkPlayWndProc, hWnd, message, wParam, lParam);
-        }
-        else {
-            return CallWindowProc(ogNetworkPlayWndProc, hWnd, message, wParam, lParam);
-        }
-    }
-    break;
-    default:
-        return CallWindowProc(ogNetworkPlayWndProc, hWnd, message, wParam, lParam);
-    }
-    return 0;
 }
 
 //Process the Video options tab's incoming messages
@@ -785,46 +644,6 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
             }
         }
 
-        //IPX address book
-        if (overrideAddressBook)
-        {
-            if (lastFoundResourceName == (LPCSTR)0x192)
-            {
-                //Get original controls
-                CWnd* orgAddressBook = pWnd->GetDlgItem(1243);
-
-                CWnd* ipxBtn = pWnd->GetDlgItem(4003);
-                CWnd* tcpBtn = pWnd->GetDlgItem(4004);
-
-                tcpAddressDropdown = pWnd->GetDlgItem(1242);
-
-                //Override original window processing methods
-                ogNetworkPlayWndProc = (WNDPROC)SetWindowLongPtr(returnVal, GWLP_WNDPROC, (LONG_PTR)NetworkPlayWndProc);
-
-                HWND addressBookHWND = orgAddressBook->GetSafeHwnd();
-                ogAddressBookWndProc = (WNDPROC)SetWindowLongPtr(addressBookHWND, GWLP_WNDPROC, (LONG_PTR)AddressBookBtnWndProc);
-
-                HWND ipxHWND = ipxBtn->GetSafeHwnd();
-                ogIPXBtnWndProc = (WNDPROC)SetWindowLongPtr(ipxHWND, GWLP_WNDPROC, (LONG_PTR)IPXBtnWndProc);
-
-                HWND tcpHWND = tcpBtn->GetSafeHwnd();
-                ogTCPBtnWndProc = (WNDPROC)SetWindowLongPtr(tcpHWND, GWLP_WNDPROC, (LONG_PTR)TCPBtnWndProc);
-
-                //Check if TCP or IPX is selected upon entering and reenable the IPX button if its disabled
-                IPXEnabled = !IsWindowEnabled(addressBookHWND);
-
-                if (IPXEnabled) 
-                {
-                    EnableWindow(addressBookHWND, true);
-
-                    if (tcpAddressDropdown != NULL)
-                        tcpAddressDropdown->ShowWindow(false);
-                }
-
-                return returnVal;
-            }
-        }
-
         //Statistics screen
         if(lastFoundResourceName == (LPCSTR)0x124)
         {
@@ -973,7 +792,6 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     case DLL_PROCESS_ATTACH:
     {
         createAdvancedOptions = FileExists("settings.exe");
-        overrideAddressBook = FileExists("ipxaddress.exe");
 
         MH_STATUS status = MH_Initialize();
 
