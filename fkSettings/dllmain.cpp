@@ -35,7 +35,7 @@ extern "C" { int __afxForceUSRDLL; }
 
 #include <sstream>
 #include <fstream>
-#include "CDButton.h"
+//#include "CDButton.h" //Hints
 
 #pragma comment(lib,"user32.lib") 
 #pragma comment(lib,"libs\\libMinHook.x86.lib")
@@ -179,7 +179,7 @@ namespace TabOrder
         }
     }
 }
-
+/*
 int __fastcall WeaponsSetWindowPos_Label(int hWnd, void* lol, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags)
 {
     HWND hwnd = *(HWND*)(hWnd + 28);
@@ -187,7 +187,7 @@ int __fastcall WeaponsSetWindowPos_Label(int hWnd, void* lol, HWND hWndInsertAft
 
     return SetWindowPos(hwnd, hWndInsertAfter, X, Y, cx, cy, uFlags);
 }
-
+*/
 int __fastcall WeaponsSetWindowPos_Input(int hWnd, void* lol, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags)
 {
     HWND hwnd = *(HWND*)(hWnd + 28);
@@ -653,7 +653,7 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
 
     return returnVal;
 }
-
+/*
 std::string GetWindowTextAsString(HWND hWnd) {
     // Get the text length first
     int length = GetWindowTextLengthA(hWnd);
@@ -670,7 +670,7 @@ std::string GetWindowTextAsString(HWND hWnd) {
 
     return text;
 }
-
+*/
 //Function that hooks to the TextOutA method
 typedef BOOL(WINAPI* TextOutAType)(HDC hdc, int x, int y, LPCSTR lpString, int c);
 TextOutAType pTextOutA = nullptr; //original function pointer after hook
