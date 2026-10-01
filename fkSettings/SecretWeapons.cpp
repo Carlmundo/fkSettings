@@ -456,16 +456,19 @@ namespace
 
     // Both transports copy the packet before returning, just as they do with
     // the native serializer's stack buffer. Share these detours with network
-    // computer teams so weapon schemes and AI launch settings coexist.
+    // computer teams so weapon schemes, lobby icons and AI launch settings coexist.
     void __fastcall SendWeaponPacketToPlayer(void* object, void*, uint32_t session,
         uint32_t player, const void* packet, uint32_t length)
     {
         ExtendedWeaponPacket extended;
         NetworkTeams::StartPacket start;
+        NetworkTeams::LobbyPacket lobby;
         if (ExtendWeaponPacket(packet, length, extended))
             originalSendToPlayer(object, session, player, extended.data(), static_cast<uint32_t>(extended.size()));
         else if (NetworkTeams::ExtendStartPacket(packet, length, start))
             originalSendToPlayer(object, session, player, start.data(), static_cast<uint32_t>(start.size()));
+        else if (const auto lobbyLength = NetworkTeams::ExtendLobbyPacket(packet, length, lobby))
+            originalSendToPlayer(object, session, player, lobby.data(), lobbyLength);
         else
             originalSendToPlayer(object, session, player, packet, length);
     }
@@ -475,10 +478,13 @@ namespace
     {
         ExtendedWeaponPacket extended;
         NetworkTeams::StartPacket start;
+        NetworkTeams::LobbyPacket lobby;
         if (ExtendWeaponPacket(packet, length, extended))
             originalSendToAll(object, session, extended.data(), static_cast<uint32_t>(extended.size()));
         else if (NetworkTeams::ExtendStartPacket(packet, length, start))
             originalSendToAll(object, session, start.data(), static_cast<uint32_t>(start.size()));
+        else if (const auto lobbyLength = NetworkTeams::ExtendLobbyPacket(packet, length, lobby))
+            originalSendToAll(object, session, lobby.data(), lobbyLength);
         else
             originalSendToAll(object, session, packet, length);
     }
@@ -496,9 +502,13 @@ namespace
         uint32_t packetType = 0;
         if (packet && payloadLength >= sizeof(packetType)) memcpy(&packetType, packet, sizeof(packetType));
         if (packetType == 14 && payloadLength < NetworkTeams::NativeStartPacketSize) return;
+        const auto lobbySize = NetworkTeams::LobbyPacketSize(packetType);
+        if (lobbySize && payloadLength < lobbySize) return;
         if (!IsWeaponPacket(packet, payloadLength))
         {
+            if (lobbySize) NetworkTeams::SetJoiningLobby(object);
             originalReceivePacket(object, sender, packet, length);
+            if (lobbySize) NetworkTeams::ReceiveLobbyPacket(object, sender, packet, payloadLength);
             return;
         }
         // This lobby dispatcher runs on the UI thread and receives the real

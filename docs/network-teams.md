@@ -6,6 +6,14 @@ controls. They count toward the existing total-team and per-player limits and
 retain the difficulty stored in the team editor. Joining players still add human
 teams; the host supplies the computer teams.
 
+Selected computer teams in both the hosting dialog (203) and joining dialog
+(205) retain their Easy/Medium/Hard sprite from
+bitmap 244 in the **Teams** box, including when selected: one computer for skills
+1–33, two for 34–66, and three for 67–100. Human team rows keep their worm icon.
+The image-list and tree-control APIs used are compatible with Windows XP.
+Joining players see these icons while waiting in the lobby, including teams
+already selected before they joined and teams subsequently removed or re-added.
+
 Install the new `fkSettings.dll` in the Worms 2 game directory on **every player's
 computer**, then restart `frontend.exe`. An older DLL or an unmodified client
 does not understand the AI settings and produces different game data.
@@ -38,6 +46,21 @@ game-object offsets `4 + slot * 4` and saved skill fields at image RVA
 `0x19D720 + savedIndex * 0x19C`. Remote teams have saved index -1 and are never
 classified from the host's local team database. The native team-order swap also
 swaps saved indices, preserving this association.
+
+The selected-team tree's native row builder at RVA `0x4B233` always inserts a
+worm icon (index 5). After it creates a computer-team row, the DLL sets that
+row's normal and selected images to the corresponding difficulty sprite from
+bitmap 244, using the native available-team list's thresholds at RVA `0x5CA01`.
+The tree gets a private image list that preserves all native bitmap 340 sprites
+and appends the three CPU sprites. Its cells widen from 22 to 32 pixels so the
+32×16 CPU sprites retain every original pixel. The shared frontend image list
+is unchanged, and a window subclass releases the private list when the tree
+closes. The row is located using its saved index and team name; tree row indices
+can differ from game slots. The joining tree at dialog-object offset `0x3648`
+uses the host's lobby metadata instead of the joining player's saved-team
+database, including for remote rows with saved index -1. No controller bytes
+or tree selection/ownership metadata change. Remote human rows retain their
+native icon even when their name or saved index matches a local CPU team.
 
 Team records are at game-object offsets `0x484 + slot * 0x108`. Each record begins
 with the controller byte, worm count, then a 17-byte team name. The writer omits
@@ -72,9 +95,34 @@ Clients match AI teams by name when writing their game data, so native team
 reordering does not change which team gets each difficulty. Ownership remains
 available to the lobby throughout team selection and after launching.
 
+## Lobby icon messages
+
+The host also appends the same 112-byte `FKA1` name/skill extension to the native
+lobby snapshot (type 5, `0x10DE` bytes) and team-add broadcast (type 10, `0xC8`
+bytes) when it has CPU teams. Every native byte, including the snapshot header,
+is preserved. Human-only lobbies keep the native packet formats. The joining
+player's team-add requests use the separate native send path and stay unchanged.
+
+The shared receiver marks the joining tree before native processing, so its
+rows never infer CPU difficulty from the joining player's local saved teams.
+After the native snapshot establishes the host at dialog offset `0x163C`, the
+DLL validates the extension and refreshes existing rows. This also updates
+rows that the native refresh kept rather than recreated. Subsequent team-add
+messages replace the cached difficulty data; absent or invalid extensions
+clear it and restore any stale CPU images to the native worm icon. The native
+team-remove message (type 11, `0x1C` bytes) removes that name from the cache.
+Add/remove metadata is accepted only from the current host. Closing the tree
+releases its images and clears its cached CPU metadata.
+
+Lobby icon metadata is separate from launch metadata. The start packet remains
+the source of AI controllers for `game.dat`. Both transport length conventions
+are handled, and truncated snapshots/add/remove packets are dropped before
+the native dispatcher reads their fixed payloads.
+
 ## Build and verification
 
-Build with Visual Studio 2022, the v143 Win32 compiler, MFC, and Windows SDK 8.1:
+The Release DLL uses the project's `v141_xp` compiler, C++14, MFC, and Windows
+SDK 7.1A for Windows XP compatibility. Test executables use v143 and SDK 8.1:
 
 ```powershell
 MSBuild.exe fkSettings/fkSettings.vcxproj /p:Configuration=Release /p:Platform=Win32 /p:OutDir="$PWD/Release/"
@@ -90,6 +138,13 @@ Verified on the supplied frontend:
 - Host and client serialization agrees for humans and AI difficulties 1, 50,
   and 100; only the intended controller bytes change.
 - Ownership is restored after success, failure, and a C++ exception.
+- A real Windows tree-control fixture verifies both computer icon states at all
+  difficulty boundaries, exact bitmap 244 pixels and transparency, unchanged
+  shared images, re-added rows, window cleanup, and preserved owner/selection data.
+- Joining-dialog fixtures cover initial host establishment, late joins, all CPU
+  difficulty boundaries, native tree rebuilds, add/remove/re-add updates,
+  conflicting local saved teams, invalid/legacy metadata, and guarded lobby
+  packet buffers on both transports.
 - AI settings survive team reordering and both transport length conventions.
 - Non-host messages, stale state, malformed names, duplicate names, invalid
   difficulty, and truncated packets are covered, including guarded receive buffers.
