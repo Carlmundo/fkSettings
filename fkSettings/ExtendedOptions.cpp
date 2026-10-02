@@ -21,11 +21,12 @@ namespace
     constexpr size_t NativePayloadSize = 128;
     constexpr int FirstCheckId = 51000;
     constexpr wchar_t ContextProperty[] = L"fkSettings.ExtendedOptions";
-    OptionStrings strings = MakeOptionStrings("en");
+    HMODULE languageResources = GetModuleHandleW(nullptr);
+    OptionStrings strings = MakeOptionStrings("en", languageResources);
     struct Option
     {
         OptionIndex index;
-        const wchar_t* const* label;
+        const std::wstring* label;
         unsigned char maximum;
         int row;
         UINT zeroStringId;
@@ -297,7 +298,7 @@ namespace
             if (control) SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
             return control;
         };
-        editor->group = create(L"BUTTON", strings.strExtendedOptions, BS_GROUPBOX, FirstCheckId - 1,
+        editor->group = create(L"BUTTON", strings.strExtendedOptions.c_str(), BS_GROUPBOX, FirstCheckId - 1,
             RECT{ 8, 476, 383, GroupBottom }, 0, 0, 2);
         bool success = editor->group != nullptr;
         std::array<int, 2> sliderSpacing{};
@@ -310,7 +311,7 @@ namespace
             const int id = FirstCheckId + static_cast<int>(i);
             if (option.IsSlider())
             {
-                editor->labels[i] = create(L"STATIC", *option.label, SS_LEFT, FirstCheckId + 100 + static_cast<int>(i),
+                editor->labels[i] = create(L"STATIC", option.label->c_str(), SS_LEFT, FirstCheckId + 100 + static_cast<int>(i),
                     RECT{ x, y, x + 171, y + LabelHeight }, 0, option.blankLines);
                 editor->controls[i] = create(TRACKBAR_CLASSW, L"", WS_TABSTOP | TBS_AUTOTICKS | TBS_TOP | sliderBorder, id,
                     RECT{ x, y + SliderTop, x + 100, y + SliderTop + SliderHeight }, sliderBorderEx, option.blankLines);
@@ -327,7 +328,7 @@ namespace
             }
             else
             {
-                editor->controls[i] = create(L"BUTTON", *option.label, BS_AUTOCHECKBOX | WS_TABSTOP, id,
+                editor->controls[i] = create(L"BUTTON", option.label->c_str(), BS_AUTOCHECKBOX | WS_TABSTOP, id,
                     RECT{ x, y, x + 171, y + CheckboxHeight }, 0, option.blankLines);
                 success = editor->controls[i] != nullptr;
             }
@@ -482,15 +483,15 @@ namespace
 
 void SetLanguage(const std::string& language)
 {
-    strings = MakeOptionStrings(language);
+    strings = MakeOptionStrings(language, languageResources);
     for (HWND window : editors)
         if (auto editor = static_cast<Editor*>(GetPropW(window, ContextProperty)))
         {
-            SetWindowTextW(editor->group, strings.strExtendedOptions);
+            SetWindowTextW(editor->group, strings.strExtendedOptions.c_str());
             for (const auto& option : Options)
             {
                 const size_t index = ToIndex(option.index);
-                SetWindowTextW(option.IsSlider() ? editor->labels[index] : editor->controls[index], *option.label);
+                SetWindowTextW(option.IsSlider() ? editor->labels[index] : editor->controls[index], option.label->c_str());
             }
         }
 }

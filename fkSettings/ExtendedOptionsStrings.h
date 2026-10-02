@@ -1,4 +1,5 @@
 #pragma once
+#include <Windows.h>
 #include <cstddef>
 #include <string>
 
@@ -6,38 +7,46 @@ namespace ExtendedOptions
 {
     struct OptionStrings
     {
-        const wchar_t* strGodMode;
-        const wchar_t* strHighJump;
-        const wchar_t* strSuicideBomber;
-        const wchar_t* strSheepHeaven;
-        const wchar_t* strSuperShopperCrates;
-        const wchar_t* strExtendedFusesHerds;
-        const wchar_t* strUtilitiesDontEndTurn;
-        const wchar_t* strWeaponsDontEndTurn;
-        const wchar_t* strLossOfControlDoesntEndTurn;
-        const wchar_t* strWormSelectAfterMovement;
-        const wchar_t* strLowGravity;
-        const wchar_t* strPersistentRope;
-        const wchar_t* strRapidPlay;
-        const wchar_t* strIndestructibleTerrain;
-        const wchar_t* strInvisibleTerrain;
-        const wchar_t* strFastCrates;
-        const wchar_t* strCrateSpy;
-        const wchar_t* strCrateLimit;
-        const wchar_t* strCrateRate;
-        const wchar_t* strAquaSheep;
-        const wchar_t* strInstantMines;
-        const wchar_t* strHerdDynamite;
-        const wchar_t* strHerdMine;
-        const wchar_t* strHerdMingVase;
-        const wchar_t* strHerdSheep;
-        const wchar_t* strDisableBackflip;
-        const wchar_t* strDisableUnlockedAim;
-        const wchar_t* strExtendedOptions;
+        std::wstring strGodMode;
+        std::wstring strHighJump;
+        std::wstring strSuicideBomber;
+        std::wstring strSheepHeaven;
+        std::wstring strSuperShopperCrates;
+        std::wstring strExtendedFusesHerds;
+        std::wstring strUtilitiesDontEndTurn;
+        std::wstring strWeaponsDontEndTurn;
+        std::wstring strLossOfControlDoesntEndTurn;
+        std::wstring strWormSelectAfterMovement;
+        std::wstring strLowGravity;
+        std::wstring strPersistentRope;
+        std::wstring strRapidPlay;
+        std::wstring strIndestructibleTerrain;
+        std::wstring strInvisibleTerrain;
+        std::wstring strFastCrates;
+        std::wstring strCrateSpy;
+        std::wstring strCrateLimit;
+        std::wstring strCrateRate;
+        std::wstring strAquaSheep;
+        std::wstring strInstantMines;
+        std::wstring strHerd;
+        std::wstring strHerdDynamite;
+        std::wstring strHerdMine;
+        std::wstring strHerdMingVase;
+        std::wstring strHerdSheep;
+        std::wstring strDisableBackflip;
+        std::wstring strDisableUnlockedAim;
+        std::wstring strExtendedOptions;
     };
 
+    inline std::wstring OptionResourceString(HMODULE resourceModule, UINT stringId)
+    {
+        wchar_t text[256]{};
+        LoadStringW(resourceModule, stringId, text, 256);
+        return text;
+    }
+
     // Fill each language case below. Blank translations intentionally remain blank.
-    inline OptionStrings MakeOptionStrings(const std::string& language)
+    inline OptionStrings MakeOptionStrings(const std::string& language, HMODULE resourceModule)
     {
         OptionStrings strings{};
         const char* const languages[] = {
@@ -76,10 +85,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -107,10 +113,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -139,10 +142,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"Crate Rate";
             strings.strAquaSheep = L"Aqua Sheep";
             strings.strInstantMines = L"Instant Mines";
-            strings.strHerdDynamite = L"Herd weapon: Dynamite";
-            strings.strHerdMine = L"Herd weapon: Mine";
-            strings.strHerdMingVase = L"Herd weapon: Ming Vase";
-            strings.strHerdSheep = L"Herd weapon: Sheep";
+            strings.strHerd = L"Herd weapon";
             strings.strDisableBackflip = L"Disable Backflip";
             strings.strDisableUnlockedAim = L"Disable Unlocked Aim";
             strings.strExtendedOptions = L"Extended Options";
@@ -170,10 +170,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -201,10 +198,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -232,10 +226,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -263,10 +254,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -294,10 +282,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -325,10 +310,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -356,10 +338,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -387,10 +366,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -418,10 +394,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -449,10 +422,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -480,10 +450,7 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
@@ -511,16 +478,17 @@ namespace ExtendedOptions
             strings.strCrateRate = L"";
             strings.strAquaSheep = L"";
             strings.strInstantMines = L"";
-            strings.strHerdDynamite = L"";
-            strings.strHerdMine = L"";
-            strings.strHerdMingVase = L"";
-            strings.strHerdSheep = L"";
+            strings.strHerd = L"";
             strings.strDisableBackflip = L"";
             strings.strDisableUnlockedAim = L"";
             strings.strExtendedOptions = L"";
             break;
 
         }
+        strings.strHerdDynamite = strings.strHerd + L": " + OptionResourceString(resourceModule, 4915);
+        strings.strHerdMine = strings.strHerd + L": " + OptionResourceString(resourceModule, 4916);
+        strings.strHerdMingVase = strings.strHerd + L": " + OptionResourceString(resourceModule, 4917);
+        strings.strHerdSheep = strings.strHerd + L": " + OptionResourceString(resourceModule, 4930);
         return strings;
     }
 }

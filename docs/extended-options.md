@@ -186,6 +186,14 @@ permanent option index, such as `strGodMode`, `strHighJump` and
 `strSuicideBomber`, plus `strExtendedOptions` for the group title.
 The descriptors reference these variables instead of literal captions.
 
+`strHerd` is `L"Herd weapon"` in English/default and `L""` in the other
+language cases. After the switch, the four herd captions are assembled as
+`strHerd + L": " +` the frontend weapon string: Dynamite uses ID 4915,
+Mine uses 4916, Ming Vase uses 4917 and Sheep uses 4930. Thus their weapon
+names come from the game resources in every language, even while the prefix
+is blank. The variables own their text as `std::wstring` so composed captions
+remain valid after the function returns and on later language changes.
+
 The `en`/default case contains the English labels. Each other supported
 language (`cs`, `de`, `es`, `es-419`, `fr`, `is`, `it`, `nl`, `pl`, `pt`,
 `pt-br`, `ru`, `sv`, `zh-Hans`) has its own case with empty `L""` assignments

@@ -28,9 +28,18 @@ static std::array<unsigned char, EO::OptionCount> Pattern(size_t enabledIndex)
     return pattern;
 }
 
-static void LanguageTests()
+static void LanguageTests(const char* path)
 {
-    const wchar_t* const english[] = {
+    HMODULE module = LoadLibraryExA(path, nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    Check(module != nullptr, "load native weapon string resources without running frontend");
+    const HMODULE previousResources = EO::languageResources;
+    EO::languageResources = module;
+    const std::pair<EO::OptionIndex, UINT> herdIds[] = {
+        { EO::OptionIndex::HerdDynamite, 4915 }, { EO::OptionIndex::HerdMine, 4916 },
+        { EO::OptionIndex::HerdMingVase, 4917 }, { EO::OptionIndex::HerdSheep, 4930 }
+    };
+    std::wstring weaponNames[EO::OptionCount];
+    std::wstring english[] = {
         L"God Mode", L"High Jump", L"Change Kamikaze to Suicide Bomber", L"Sheep Heaven",
         L"Super Shopper Crates", L"Extended Fuses/Herds", L"Utilities don't end turn",
         L"Weapons don't end turn", L"Loss of control doesn't end turn", L"Worm select after movement",
@@ -39,27 +48,45 @@ static void LanguageTests()
         L"Herd weapon: Dynamite", L"Herd weapon: Mine", L"Herd weapon: Ming Vase", L"Herd weapon: Sheep",
         L"Disable Backflip", L"Disable Unlocked Aim"
     };
+    for (const auto& entry : herdIds)
+    {
+        wchar_t text[256]{};
+        Check(LoadStringW(module, entry.second, text, 256) != 0, "requested native weapon string exists");
+        const size_t index = EO::ToIndex(entry.first);
+        weaponNames[index] = text;
+        english[index] = std::wstring(L"Herd weapon: ") + text;
+    }
     EO::values = Pattern(EO::OptionCount);
     const auto before = EO::values;
     for (const char* language : { "en", "", "unknown", " \r\n", " en\r\n", "\xEF\xBB\xBF" "en\r\n" })
     {
         EO::SetLanguage(language);
         for (const auto& option : EO::Options)
-            Check(*option.label && wcscmp(*option.label, english[EO::ToIndex(option.index)]) == 0,
+            Check(*option.label == english[EO::ToIndex(option.index)],
                 "English and fallback supply every named option label");
-        Check(wcscmp(EO::strings.strExtendedOptions, L"Extended Options") == 0, "English group title");
+        Check(EO::strings.strExtendedOptions == L"Extended Options", "English group title");
+        Check(EO::strings.strHerd == L"Herd weapon", "English herd prefix");
     }
     for (const char* language : { "cs", "de", "es", "es-419", "fr", "is", "it", "nl", "pl", "pt", "pt-br",
         "ru", "sv", "zh-Hans", "de\r\n", "\xEF\xBB\xBF" "zh-Hans\r\n" })
     {
         EO::SetLanguage(language);
         for (const auto& option : EO::Options)
-            Check(*option.label && **option.label == L'\0', "recognized languages have editable blank placeholders");
-        Check(EO::strings.strExtendedOptions && *EO::strings.strExtendedOptions == L'\0', "blank group title placeholder");
+        {
+            const auto& weaponName = weaponNames[EO::ToIndex(option.index)];
+            Check(*option.label == (weaponName.empty() ? std::wstring{} : L": " + weaponName),
+                "all languages assemble herd labels from blank prefix and specified native resource");
+        }
+        Check(EO::strings.strExtendedOptions.empty(), "blank group title placeholder");
+        Check(EO::strings.strHerd.empty(), "blank translated herd prefix");
     }
     Check(EO::values == before, "language changes preserve every stored option value");
     EO::SetLanguage("en");
-    puts("PASS: all language cases, English fallback and blank translation placeholders");
+    EO::languageResources = previousResources;
+    FreeLibrary(module);
+    Check(*EO::FindOption(EO::ToIndex(EO::OptionIndex::HerdSheep))->label == english[EO::ToIndex(EO::OptionIndex::HerdSheep)],
+        "composed labels own their text after resource module unloads");
+    puts("PASS: all languages, English fallback, blank herd prefixes and four native weapon string IDs");
 }
 
 static void SchemeTests()
@@ -280,6 +307,9 @@ static void EditorTests(const char* path)
     InitCommonControls();
     HMODULE module = LoadLibraryExA(path, nullptr, LOAD_LIBRARY_AS_DATAFILE);
     Check(module != nullptr, "load supplied frontend resources without executing it");
+    const HMODULE previousResources = EO::languageResources;
+    EO::languageResources = module;
+    EO::SetLanguage("en");
     HRSRC resource = FindResourceW(module, MAKEINTRESOURCEW(154), MAKEINTRESOURCEW(5));
     auto resourceTemplate = static_cast<const DLGTEMPLATE*>(LockResource(LoadResource(module, resource)));
     HWND root = CreateWindowW(L"STATIC", L"Fixture", WS_OVERLAPPEDWINDOW, 0, 0, 700, 500, nullptr, nullptr, nullptr, nullptr);
@@ -372,7 +402,7 @@ static void EditorTests(const char* path)
         const HWND labelWindow = slider ? editor->labels[i] : control;
         wchar_t label[100]{};
         GetWindowTextW(labelWindow, label, 100);
-        Check(wcscmp(label, *EO::Options[i].label) == 0, "every requested option label present");
+        Check(label == *EO::Options[i].label, "every requested option label present");
         RECT bounds{}, group{};
         GetWindowRect(control, &bounds);
         GetWindowRect(editor->group, &group);
@@ -472,12 +502,12 @@ static void EditorTests(const char* path)
         EO::SetLanguage(language);
         wchar_t text[150]{};
         GetWindowTextW(editor->group, text, 150);
-        Check(wcscmp(text, EO::strings.strExtendedOptions) == 0, "language updates attached group title");
+        Check(text == EO::strings.strExtendedOptions, "language updates attached group title");
         for (const auto& option : EO::Options)
         {
             const size_t index = EO::ToIndex(option.index);
             GetWindowTextW(option.IsSlider() ? editor->labels[index] : editor->controls[index], text, 150);
-            Check(wcscmp(text, *option.label) == 0, "language updates attached checkbox and slider captions");
+            Check(text == *option.label, "language updates attached checkbox and slider captions");
             Check(option.IsSlider() ? SendMessageW(editor->controls[index], TBM_GETPOS, 0, 0) == beforeLanguageChange[index] :
                 SendMessageW(editor->controls[index], BM_GETCHECK, 0, 0) == (beforeLanguageChange[index] ? BST_CHECKED : BST_UNCHECKED),
                 "language change preserves control state");
@@ -599,6 +629,7 @@ static void EditorTests(const char* path)
     Check(EO::editors.empty(), "reordered editor cleanup");
     puts("PASS: all options moved in the dialog retain their fixed .opt, extended.dat and lobby indexes");
     DestroyWindow(root);
+    EO::languageResources = previousResources;
     FreeLibrary(module);
     puts("PASS: real Dialog 154 single group/two-column spacing, Low Gravity checkbox, native slider borders, keyboard sliders, localized endpoints, scheme reload, tab traversal and Default");
 }
@@ -720,12 +751,12 @@ int main(int argc, char** argv)
         EO::enabled = true;
         SW::originalRead = Read;
         SW::originalWrite = Write;
-        LanguageTests();
+        Check(argc > 1, "supply frontend path for real resource/hook validation");
+        LanguageTests(argv[1]);
         SchemeTests();
         LaunchTests();
         NetworkTests();
         DefaultTests();
-        Check(argc > 1, "supply frontend path for real resource/hook validation");
         EditorTests(argv[1]);
         HookTests(argv[1]);
         return 0;
