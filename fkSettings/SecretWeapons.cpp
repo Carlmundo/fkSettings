@@ -11,6 +11,7 @@ typedef struct IUnknown IUnknown;
 #include "include/MinHook.h"
 #include "SecretWeapons.h"
 #include "NetworkTeams.h"
+#include "ExtendedOptions.h"
 
 #pragma comment(lib, "comctl32.lib")
 
@@ -463,8 +464,11 @@ namespace
         ExtendedWeaponPacket extended;
         NetworkTeams::StartPacket start;
         NetworkTeams::LobbyPacket lobby;
+        ExtendedOptions::Packet options;
         if (ExtendWeaponPacket(packet, length, extended))
             originalSendToPlayer(object, session, player, extended.data(), static_cast<uint32_t>(extended.size()));
+        else if (ExtendedOptions::ExtendPacket(packet, length, options))
+            originalSendToPlayer(object, session, player, options.data(), static_cast<uint32_t>(options.size()));
         else if (NetworkTeams::ExtendStartPacket(packet, length, start))
             originalSendToPlayer(object, session, player, start.data(), static_cast<uint32_t>(start.size()));
         else if (const auto lobbyLength = NetworkTeams::ExtendLobbyPacket(packet, length, lobby))
@@ -479,8 +483,11 @@ namespace
         ExtendedWeaponPacket extended;
         NetworkTeams::StartPacket start;
         NetworkTeams::LobbyPacket lobby;
+        ExtendedOptions::Packet options;
         if (ExtendWeaponPacket(packet, length, extended))
             originalSendToAll(object, session, extended.data(), static_cast<uint32_t>(extended.size()));
+        else if (ExtendedOptions::ExtendPacket(packet, length, options))
+            originalSendToAll(object, session, options.data(), static_cast<uint32_t>(options.size()));
         else if (NetworkTeams::ExtendStartPacket(packet, length, start))
             originalSendToAll(object, session, start.data(), static_cast<uint32_t>(start.size()));
         else if (const auto lobbyLength = NetworkTeams::ExtendLobbyPacket(packet, length, lobby))
@@ -498,6 +505,7 @@ namespace
         const bool reliable = *reinterpret_cast<uint32_t*>(image + 0x188b14) == 1;
         const uint32_t payloadLength = reliable ? (length >= 4 ? length - 4 : 0) : length;
         const uint32_t host = *reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0x163c);
+        if (!ExtendedOptions::ReceivePacket(sender, host, packet, payloadLength)) return;
         NetworkTeams::ReceiveStartPacket(sender, host, packet, payloadLength);
         uint32_t packetType = 0;
         if (packet && payloadLength >= sizeof(packetType)) memcpy(&packetType, packet, sizeof(packetType));
@@ -507,7 +515,10 @@ namespace
         if (!IsWeaponPacket(packet, payloadLength))
         {
             if (lobbySize) NetworkTeams::SetJoiningLobby(object);
-            originalReceivePacket(object, sender, packet, length);
+            // The native decoder consumes only the original option records.
+            originalReceivePacket(object, sender, packet, packetType == 0x19 &&
+                payloadLength >= ExtendedOptions::NativePacketSize ?
+                static_cast<uint32_t>(ExtendedOptions::NativePacketSize) : length);
             if (lobbySize) NetworkTeams::ReceiveLobbyPacket(object, sender, packet, payloadLength);
             return;
         }
@@ -531,6 +542,7 @@ namespace
     size_t __cdecl ReadFile(void* buffer, size_t size, size_t count, void* stream)
     {
         const size_t result = originalRead(buffer, size, count, stream);
+        ExtendedOptions::ReadScheme(buffer, size, count, stream, result, originalRead);
         if (IsSchemePayload(buffer, size, count))
         {
             secretStocks.fill(0); // Legacy, truncated, or unsupported extensions never inherit stock.
@@ -549,6 +561,9 @@ namespace
     size_t __cdecl WriteFile(const void* buffer, size_t size, size_t count, void* stream)
     {
         const size_t result = originalWrite(buffer, size, count, stream);
+        if (!ExtendedOptions::WriteScheme(buffer, size, count, stream, result, originalWrite) ||
+            !ExtendedOptions::WriteLaunchData(stream, size, count, result))
+            return 0;
         if (result == count && IsSchemePayload(buffer, size, count))
         {
             SchemeExtension extension = {};

@@ -12,6 +12,6 @@
     <ClCompile><LanguageStandard>stdcpp20</LanguageStandard><WarningLevel>Level4</WarningLevel><PreprocessorDefinitions>_WIN32_WINNT=0x0601;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
     <Link><AdditionalDependencies>user32.lib;gdi32.lib;$(ProjectDir)..\fkSettings\libs\libMinHook.x86.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="NetworkTeamsTests.cpp" /></ItemGroup>
+  <ItemGroup><ClCompile Include="NetworkTeamsTests.cpp" /><ClCompile Include="../fkSettings/ExtendedOptions.cpp" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

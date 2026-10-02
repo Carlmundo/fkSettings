@@ -9,3 +9,8 @@ See [implementation notes, build instructions, and verification](docs/secret-wea
 Network hosts can also add saved **computer-controlled teams**, retaining their
 AI difficulty. All players need the updated `fkSettings.dll` for these matches.
 See [network team implementation and verification](docs/network-teams.md).
+
+Game options (dialog 154) now includes **Extended Options** with 24 checkboxes
+and three numeric trackbars. Values persist in an appended `.opt` extension, transfer with the
+host's online options, and are written to `Data/extended.dat` for an engine
+extension to consume. See [file offsets and verification](docs/extended-options.md).

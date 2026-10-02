@@ -32,6 +32,7 @@ extern "C" { int __afxForceUSRDLL; }
 #include "Hooks.h"
 #include "SecretWeapons.h"
 #include "NetworkTeams.h"
+#include "ExtendedOptions.h"
 
 #include <sstream>
 #include <fstream>
@@ -703,6 +704,7 @@ BOOL WINAPI detourTextOutA(HDC hdc, int x, int y, LPCSTR lpString, int c) {
 
 void AssignLabels() 
 {
+    ExtendedOptions::SetLanguage(lang);
     if (lang == "en")
     {
         advancedOptionsLabel = _TEXT("Advanced options");
@@ -852,8 +854,13 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 
         if (!SecretWeapons::Install())
             OutputDebugStringA("fkSettings: Secret weapon editor is unavailable.\n");
-        else if (!NetworkTeams::Install())
-            OutputDebugStringA("fkSettings: Network computer teams are unavailable.\n");
+        else
+        {
+            if (!ExtendedOptions::Install())
+                OutputDebugStringA("fkSettings: Extended Options are unavailable.\n");
+            if (!NetworkTeams::Install())
+                OutputDebugStringA("fkSettings: Network computer teams are unavailable.\n");
+        }
 
         Initialized = true;
 
