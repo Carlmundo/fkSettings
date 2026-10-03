@@ -16,9 +16,7 @@ typedef struct IUnknown IUnknown;
 #include <afxext.h>         // MFC extensions
 #include "winerror.h"
 #include <mmsystem.h>
-#include <commctrl.h>
 #pragma comment(lib, "winmm.lib")
-#pragma comment(lib, "comctl32.lib")
 #include <array>
 #include <string>
 #include <vector>
@@ -138,82 +136,6 @@ double GetDpiScaleFactor(HWND hwnd)
     int dpi = GetDeviceCaps(hdc, LOGPIXELSX);
     ReleaseDC(hwnd, hdc);
     return dpi / 96.0; // 96 is the default DPI
-}
-
-LRESULT CALLBACK HintFontProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam,
-    UINT_PTR id, DWORD_PTR reference)
-{
-    const LRESULT result = DefSubclassProc(window, message, wParam, lParam);
-    if (message == WM_NCDESTROY)
-    {
-        RemoveWindowSubclass(window, HintFontProc, id);
-        DeleteObject(reinterpret_cast<HFONT>(reference));
-    }
-    return result;
-}
-
-void MatchHintFontToDialog(HWND dialog)
-{
-    HWND hintWindow = ::GetDlgItem(dialog, 1003);
-    wchar_t className[32]{};
-    DWORD_PTR existingFont = 0;
-    if (!hintWindow || !GetClassNameW(hintWindow, className, 32) ||
-        _wcsicmp(className, L"STATIC") != 0 ||
-        GetWindowSubclass(hintWindow, HintFontProc, 0, &existingFont)) return;
-
-    HFONT font = reinterpret_cast<HFONT>(SendMessageW(hintWindow, WM_GETFONT, 0, 0));
-    LOGFONTW hintFont{};
-    if (!font || GetObjectW(font, sizeof(hintFont), &hintFont) != sizeof(hintFont) ||
-        hintFont.lfHeight == 0) return;
-
-    RECT units{ 0, 0, 4, 8 };
-    if (!MapDialogRect(dialog, &units) || units.right <= 0 || units.bottom <= 0) return;
-    HDC dc = GetDC(hintWindow);
-    if (!dc) return;
-    const int dpiY = GetDeviceCaps(dc, LOGPIXELSY);
-    LOGFONTW referenceFont{};
-    referenceFont.lfHeight = -MulDiv(8, dpiY, 72);
-    referenceFont.lfWeight = FW_NORMAL;
-    referenceFont.lfCharSet = DEFAULT_CHARSET;
-    referenceFont.lfOutPrecision = OUT_TT_PRECIS;
-    wcscpy_s(referenceFont.lfFaceName, L"Microsoft Sans Serif");
-    HFONT reference = dpiY > 0 ? CreateFontIndirectW(&referenceFont) : nullptr;
-    HGDIOBJ previous = reference ? SelectObject(dc, reference) : nullptr;
-    TEXTMETRICW metrics{};
-    SIZE alphabet{};
-    const bool haveReference = previous && previous != HGDI_ERROR &&
-        GetTextMetricsW(dc, &metrics) && GetTextExtentPoint32W(dc,
-            L"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 52, &alphabet);
-    if (previous && previous != HGDI_ERROR) SelectObject(dc, previous);
-    ReleaseDC(hintWindow, dc);
-    if (reference) DeleteObject(reference);
-    if (!haveReference) return;
-
-    // Windows calculates dialog units from the average width of this alphabet
-    // and the font's text metric height, rather than the hint's own font.
-    const int referenceWidth = (alphabet.cx / 26 + 1) / 2;
-    if (referenceWidth <= 0 || metrics.tmHeight <= 0) return;
-    const double widthRatio = static_cast<double>(units.right) / referenceWidth;
-    const double heightRatio = static_cast<double>(units.bottom) / metrics.tmHeight;
-    const double ratio = widthRatio < heightRatio ? widthRatio : heightRatio;
-    // Ignore small rounding differences and preserve fonts that already fit
-    // the normal dialog scale. Only the hint control receives a smaller font.
-    if (ratio >= 0.95) return;
-    const LONG oldHeight = hintFont.lfHeight;
-    LONG height = static_cast<LONG>(round(abs(oldHeight) * ratio));
-    if (height < 1) height = 1;
-    hintFont.lfHeight = oldHeight < 0 ? -height : height;
-    if (hintFont.lfWidth != 0)
-        hintFont.lfWidth = static_cast<LONG>(round(hintFont.lfWidth * ratio));
-    HFONT adjusted = CreateFontIndirectW(&hintFont);
-    if (!adjusted) return;
-    if (!SetWindowSubclass(hintWindow, HintFontProc, 0, reinterpret_cast<DWORD_PTR>(adjusted)))
-    {
-        DeleteObject(adjusted);
-        return;
-    }
-    SendMessageW(hintWindow, WM_SETFONT, reinterpret_cast<WPARAM>(adjusted), TRUE);
-    reposHintText = false;
 }
 
 void PatchCall(void* callAddr, void* newFunc) {
@@ -548,29 +470,28 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
     //}
 
     if (returnVal != NULL) {
+
         CWnd* pWnd = CWnd::FromHandle(returnVal);
 
         CString title;
         pWnd->GetWindowTextW(title);
         double scale = GetDpiScaleFactor(returnVal);
 
-        //Check if hint text is the expected size and resize if needed
-        if (scale > 1) {
-            MatchHintFontToDialog(returnVal);
-        }
-        if (reposHintText && scale == 2) {
-            CWnd* txtHint = pWnd->GetDlgItem(1003);
-            if (txtHint) {
-                CRect rectHint;
-                txtHint->GetWindowRect(&rectHint);
-                txtHint->GetParent()->ScreenToClient(&rectHint);
-                rectHint.bottom = rectHint.bottom + 4;
-                txtHint->MoveWindow(&rectHint);
+        if (reposHintText) {
+            if (scale == 2) {
+                CWnd* txtHint = pWnd->GetDlgItem(1003);
+                if (txtHint) {
+                    CRect rectHint;
+                    txtHint->GetWindowRect(&rectHint);
+                    txtHint->GetParent()->ScreenToClient(&rectHint);
+                    rectHint.bottom = rectHint.bottom + 4;
+                    txtHint->MoveWindow(&rectHint);
+                    reposHintText = false;
+                }
+            }
+            else {
                 reposHintText = false;
             }
-        }
-        else {
-            reposHintText = false;
         }
         
         if (reposExitButton){
