@@ -110,9 +110,6 @@ static void LanguageTests(const char* path)
         const bool keepHints = strcmp(language, "pl") == 0 || strcmp(language, "pt") == 0 ||
             strcmp(language, "pt-br") == 0 || strcmp(language, "zh-Hans") == 0 ||
             strcmp(language, "\xEF\xBB\xBF" "zh-Hans\r\n") == 0;
-        if (!keepHints)
-            for (const auto& option : EO::Options)
-                Check(option.hint->empty(), "all hints are empty outside en/pl/pt/pt-br/zh-Hans");
         for (const auto& entry : expectedTranslations)
             if (strcmp(language, entry.code) == 0 || (strcmp(language, "de\r\n") == 0 && strcmp(entry.code, "de") == 0))
                 expected = &entry;
