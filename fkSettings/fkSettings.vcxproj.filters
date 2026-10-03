@@ -15,75 +15,51 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CDButton.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
     <ClInclude Include="Hooks.h">
-      <Filter>Pliki nagłówkowe</Filter>
+      <Filter>Headers</Filter>
     </ClInclude>
     <ClInclude Include="SecretWeapons.h">
-      <Filter>Pliki nagłówkowe</Filter>
+      <Filter>Headers</Filter>
     </ClInclude>
     <ClInclude Include="ExtendedOptions.h">
-      <Filter>Pliki nagłówkowe</Filter>
+      <Filter>Headers</Filter>
     </ClInclude>
     <ClInclude Include="ExtendedOptionsStrings.h">
-      <Filter>Pliki nagłówkowe</Filter>
+      <Filter>Headers</Filter>
     </ClInclude>
     <ClInclude Include="NetworkTeams.h">
-      <Filter>Pliki nagłówkowe</Filter>
-    </ClInclude>
-    <ClInclude Include="libs\hacklib\ExeFile.h">
-      <Filter>Pliki nagłówkowe</Filter>
-    </ClInclude>
-    <ClInclude Include="libs\hacklib\Handles.h">
-      <Filter>Pliki nagłówkowe</Filter>
-    </ClInclude>
-    <ClInclude Include="libs\hacklib\Memory.h">
-      <Filter>Pliki nagłówkowe</Filter>
-    </ClInclude>
-    <ClInclude Include="libs\hacklib\PatternScanner.h">
-      <Filter>Pliki nagłówkowe</Filter>
+      <Filter>Headers</Filter>
     </ClInclude>
     <ClInclude Include="resource.h">
-      <Filter>Pliki nagłówkowe</Filter>
-    </ClInclude>
-    <ClInclude Include="CDButton.h">
-      <Filter>Pliki nagłówkowe</Filter>
+      <Filter>Headers</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CDButton.cpp">
+      <Filter>Code</Filter>
+    </ClCompile>
     <ClCompile Include="dllmain.cpp">
-      <Filter>Pliki źródłowe</Filter>
+      <Filter>Code</Filter>
     </ClCompile>
     <ClCompile Include="Hooks.cpp">
-      <Filter>Pliki źródłowe</Filter>
+      <Filter>Code</Filter>
     </ClCompile>
     <ClCompile Include="SecretWeapons.cpp">
-      <Filter>Pliki źródłowe</Filter>
+      <Filter>Code</Filter>
     </ClCompile>
     <ClCompile Include="ExtendedOptions.cpp">
-      <Filter>Pliki źródłowe</Filter>
+      <Filter>Code</Filter>
     </ClCompile>
     <ClCompile Include="NetworkTeams.cpp">
-      <Filter>Pliki źródłowe</Filter>
-    </ClCompile>
-    <ClCompile Include="libs\hacklib\ExeFile.cpp">
-      <Filter>Pliki źródłowe</Filter>
-    </ClCompile>
-    <ClCompile Include="libs\hacklib\ExeFile_WIN32.cpp">
-      <Filter>Pliki źródłowe</Filter>
-    </ClCompile>
-    <ClCompile Include="libs\hacklib\Memory_WIN32.cpp">
-      <Filter>Pliki źródłowe</Filter>
-    </ClCompile>
-    <ClCompile Include="libs\hacklib\PatternScanner.cpp">
-      <Filter>Pliki źródłowe</Filter>
-    </ClCompile>
-    <ClCompile Include="CDButton.cpp">
-      <Filter>Pliki źródłowe</Filter>
+      <Filter>Code</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="fkSettings.rc">
-      <Filter>Pliki zasobów</Filter>
+      <Filter>Resources</Filter>
     </ResourceCompile>
   </ItemGroup>
 </Project>
