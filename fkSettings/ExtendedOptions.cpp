@@ -27,6 +27,7 @@ namespace
     {
         OptionIndex index;
         const std::wstring* label;
+        const std::wstring* hint;
         unsigned char maximum;
         int row;
         UINT zeroStringId;
@@ -41,33 +42,33 @@ namespace
     // This array sets visual/tab order. Each descriptor carries its fixed byte
     // index so moving it or changing its label cannot move the stored value.
     constexpr Option Options[OptionCount] = {
-        { OptionIndex::GodMode, &strings.strGodMode, 1, 0, 0 },
-        { OptionIndex::HighJump, &strings.strHighJump, 1, 1, 0 },
-        { OptionIndex::SuicideBomber, &strings.strSuicideBomber, 1, 2, 0 },
-        { OptionIndex::SheepHeaven, &strings.strSheepHeaven, 1, 3, 0 },
-        { OptionIndex::SuperShopperCrates, &strings.strSuperShopperCrates, 100, 4, 141, 0, 4950 },
-        { OptionIndex::ExtendedFusesHerds, &strings.strExtendedFusesHerds, 1, 6, 0, 0, 0, 1 },
-        { OptionIndex::UtilitiesDontEndTurn, &strings.strUtilitiesDontEndTurn, 1, 7, 0, 0, 0, 1 },
-        { OptionIndex::WeaponsDontEndTurn, &strings.strWeaponsDontEndTurn, 1, 8, 0, 0, 0, 1 },
-        { OptionIndex::LossOfControlDoesntEndTurn, &strings.strLossOfControlDoesntEndTurn, 1, 9, 0, 0, 0, 1 },
-        { OptionIndex::WormSelectAfterMovement, &strings.strWormSelectAfterMovement, 1, 10, 0, 0, 0, 1 },
-        { OptionIndex::LowGravity, &strings.strLowGravity, 1, 11, 0, 0, 0, 1 },
-        { OptionIndex::PersistentRope, &strings.strPersistentRope, 1, 12, 0, 0, 0, 1 },
-        { OptionIndex::RapidPlay, &strings.strRapidPlay, 1, 13, 0, 0, 0, 1 },
-        { OptionIndex::IndestructibleTerrain, &strings.strIndestructibleTerrain, 1, 14, 0, 0, 0, 2 },
-        { OptionIndex::InvisibleTerrain, &strings.strInvisibleTerrain, 1, 15, 0, 0, 0, 2 },
-        { OptionIndex::FastCrates, &strings.strFastCrates, 1, 0, 0, 1 },
-        { OptionIndex::CrateSpy, &strings.strCrateSpy, 1, 1, 0, 1 },
-        { OptionIndex::CrateLimit, &strings.strCrateLimit, 100, 2, 99, 1 },
-        { OptionIndex::CrateRate, &strings.strCrateRate, 100, 4, 99, 1 },
-        { OptionIndex::AquaSheep, &strings.strAquaSheep, 1, 6, 0, 1, 0, 1 },
-        { OptionIndex::InstantMines, &strings.strInstantMines, 1, 7, 0, 1, 0, 1 },
-        { OptionIndex::HerdDynamite, &strings.strHerdDynamite, 1, 8, 0, 1, 0, 1 },
-        { OptionIndex::HerdMine, &strings.strHerdMine, 1, 9, 0, 1, 0, 1 },
-        { OptionIndex::HerdMingVase, &strings.strHerdMingVase, 1, 10, 0, 1, 0, 1 },
-        { OptionIndex::HerdSheep, &strings.strHerdSheep, 1, 11, 0, 1, 0, 1 },
-        { OptionIndex::DisableBackflip, &strings.strDisableBackflip, 1, 12, 0, 1, 0, 2 },
-        { OptionIndex::DisableUnlockedAim, &strings.strDisableUnlockedAim, 1, 13, 0, 1, 0, 2 },
+        { OptionIndex::GodMode, &strings.strGodMode, &strings.hintGodMode, 1, 0, 0 },
+        { OptionIndex::HighJump, &strings.strHighJump, &strings.hintHighJump, 1, 1, 0 },
+        { OptionIndex::SheepHeaven, &strings.strSheepHeaven, &strings.hintSheepHeaven, 1, 2, 0 },
+        { OptionIndex::SuperShopperCrates, &strings.strSuperShopperCrates, &strings.hintSuperShopperCrates, 100, 3, 141, 0, 4950 },
+        { OptionIndex::ExtendedFusesHerds, &strings.strExtendedFusesHerds, &strings.hintExtendedFusesHerds, 1, 5, 0, 0, 0, 1 },
+        { OptionIndex::UtilitiesDontEndTurn, &strings.strUtilitiesDontEndTurn, &strings.hintUtilitiesDontEndTurn, 1, 6, 0, 0, 0, 1 },
+        { OptionIndex::WeaponsDontEndTurn, &strings.strWeaponsDontEndTurn, &strings.hintWeaponsDontEndTurn, 1, 7, 0, 0, 0, 1 },
+        { OptionIndex::LossOfControlDoesntEndTurn, &strings.strLossOfControlDoesntEndTurn, &strings.hintLossOfControlDoesntEndTurn, 1, 8, 0, 0, 0, 1 },
+        { OptionIndex::WormSelectAfterMovement, &strings.strWormSelectAfterMovement, &strings.hintWormSelectAfterMovement, 1, 9, 0, 0, 0, 1 },
+        { OptionIndex::LowGravity, &strings.strLowGravity, &strings.hintLowGravity, 1, 10, 0, 0, 0, 1 },
+        { OptionIndex::PersistentRope, &strings.strPersistentRope, &strings.hintPersistentRope, 1, 11, 0, 0, 0, 1 },
+        { OptionIndex::RapidPlay, &strings.strRapidPlay, &strings.hintRapidPlay, 1, 12, 0, 0, 0, 1 },
+        { OptionIndex::IndestructibleTerrain, &strings.strIndestructibleTerrain, &strings.hintIndestructibleTerrain, 1, 13, 0, 0, 0, 2 },
+        { OptionIndex::InvisibleTerrain, &strings.strInvisibleTerrain, &strings.hintInvisibleTerrain, 1, 14, 0, 0, 0, 2 },
+        { OptionIndex::FastCrates, &strings.strFastCrates, &strings.hintFastCrates, 1, 0, 0, 1 },
+        { OptionIndex::CrateSpy, &strings.strCrateSpy, &strings.hintCrateSpy, 1, 1, 0, 1 },
+        { OptionIndex::CrateLimit, &strings.strCrateLimit, &strings.hintCrateLimit, 100, 2, 99, 1 },
+        { OptionIndex::CrateRate, &strings.strCrateRate, &strings.hintCrateRate, 100, 4, 99, 1 },
+        { OptionIndex::SuicideBomber, &strings.strSuicideBomber, &strings.hintSuicideBomber, 1, 6, 0, 1, 0, 1 },
+        { OptionIndex::AquaSheep, &strings.strAquaSheep, &strings.hintAquaSheep, 1, 7, 0, 1, 0, 1 },
+        { OptionIndex::InstantMines, &strings.strInstantMines, &strings.hintInstantMines, 1, 8, 0, 1, 0, 1 },
+        { OptionIndex::HerdDynamite, &strings.strHerdDynamite, &strings.hintHerd, 1, 9, 0, 1, 0, 1 },
+        { OptionIndex::HerdMine, &strings.strHerdMine, &strings.hintHerd, 1, 10, 0, 1, 0, 1 },
+        { OptionIndex::HerdMingVase, &strings.strHerdMingVase, &strings.hintHerd, 1, 11, 0, 1, 0, 1 },
+        { OptionIndex::HerdSheep, &strings.strHerdSheep, &strings.hintHerd, 1, 12, 0, 1, 0, 1 },
+        { OptionIndex::DisableBackflip, &strings.strDisableBackflip, &strings.hintDisableBackflip, 1, 13, 0, 1, 0, 2 },
+        { OptionIndex::DisableUnlockedAim, &strings.strDisableUnlockedAim, &strings.hintDisableUnlockedAim, 1, 14, 0, 1, 0, 2 },
     };
     constexpr bool UniqueStorageIndexes()
     {
@@ -130,7 +131,11 @@ namespace
     {
         void* object;
         HWND group = nullptr;
-        // Values, control IDs and HWND arrays all use permanent storage indexes.
+        HWND hoveredControl = nullptr;
+        HWND hintWindow = nullptr;
+        const std::wstring* activeHint = nullptr;
+        std::wstring shownHint;
+        // Values, control IDs and HWND arrays all use explicit storage indexes.
         std::array<HWND, OptionCount> controls{};
         std::array<HWND, OptionCount> labels{};
         std::array<HWND, OptionCount> readouts{};
@@ -225,12 +230,91 @@ namespace
         RefreshEditors();
     }
 
+    HWND FindHintWindow(HWND control)
+    {
+        for (HWND parent = GetParent(control); parent; parent = GetParent(parent))
+            if (HWND hint = GetDlgItem(parent, 1003))
+            {
+                wchar_t type[32]{};
+                GetClassNameW(hint, type, 32);
+                // Other dialogs reuse 1003 for buttons; only target the hint text.
+                if (_wcsicmp(type, L"STATIC") == 0) return hint;
+            }
+        return nullptr;
+    }
+
+    std::wstring WindowText(HWND window)
+    {
+        std::wstring text(static_cast<size_t>(GetWindowTextLengthW(window)) + 1, L'\0');
+        const int length = GetWindowTextW(window, &text[0], static_cast<int>(text.size()));
+        text.resize(length);
+        return text;
+    }
+
+    void ShowHint(Editor& editor, HWND control, const std::wstring& hint)
+    {
+        if (editor.hoveredControl != control)
+        {
+            TRACKMOUSEEVENT tracking{ sizeof(tracking), TME_LEAVE, control, 0 };
+            TrackMouseEvent(&tracking);
+        }
+        editor.hoveredControl = control;
+        editor.hintWindow = FindHintWindow(control);
+        editor.activeHint = &hint;
+        editor.shownHint = hint;
+        if (editor.hintWindow && WindowText(editor.hintWindow) != hint)
+            SetWindowTextW(editor.hintWindow, hint.c_str());
+    }
+
+    void ClearHint(Editor& editor)
+    {
+        // A native control may already have replaced our hint before the leave
+        // notification arrives. Clear only text that still belongs to us.
+        if (IsWindow(editor.hintWindow) && WindowText(editor.hintWindow) == editor.shownHint)
+            SetWindowTextW(editor.hintWindow, L"");
+        editor.hoveredControl = nullptr;
+        editor.hintWindow = nullptr;
+        editor.activeHint = nullptr;
+        editor.shownHint.clear();
+    }
+
+    LRESULT CALLBACK HintProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam,
+        UINT_PTR id, DWORD_PTR reference)
+    {
+        auto hint = reinterpret_cast<const std::wstring*>(reference);
+        auto editor = static_cast<Editor*>(GetPropW(GetParent(window), ContextProperty));
+        if (message == WM_MOUSELEAVE || message == WM_NCDESTROY)
+        {
+            if (editor && editor->hoveredControl == window) ClearHint(*editor);
+            if (message == WM_NCDESTROY) RemoveWindowSubclass(window, HintProc, id);
+        }
+        // Let the frontend cursor handler run first, then supply our custom hint.
+        const LRESULT result = DefSubclassProc(window, message, wParam, lParam);
+        if (editor && (message == WM_MOUSEMOVE ||
+            (message == WM_SETCURSOR && LOWORD(lParam) == HTCLIENT)))
+        {
+            ShowHint(*editor, window, *hint);
+            if (message == WM_SETCURSOR) return TRUE;
+        }
+        return result;
+    }
+
+    LRESULT CALLBACK GroupProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam,
+        UINT_PTR id, DWORD_PTR)
+    {
+        // Keep the overlapping group transparent without registering a hint.
+        if (message == WM_NCHITTEST) return HTTRANSPARENT;
+        if (message == WM_NCDESTROY) RemoveWindowSubclass(window, GroupProc, id);
+        return DefSubclassProc(window, message, wParam, lParam);
+    }
+
     LRESULT CALLBACK EditorProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam,
         UINT_PTR id, DWORD_PTR reference)
     {
         auto editor = reinterpret_cast<Editor*>(reference);
         const int index = static_cast<int>(LOWORD(wParam)) - FirstCheckId;
         const Option* option = index >= 0 && index < static_cast<int>(OptionCount) ? FindOption(index) : nullptr;
+        if (message == WM_MOUSEMOVE && editor->hoveredControl) ClearHint(*editor);
         if (message == WM_COMMAND && HIWORD(wParam) == BN_CLICKED && index >= 0 &&
             option && !option->IsSlider() &&
             reinterpret_cast<HWND>(lParam) == editor->controls[index])
@@ -253,6 +337,7 @@ namespace
             }
         if (message == WM_NCDESTROY)
         {
+            ClearHint(*editor);
             RemoveWindowSubclass(window, EditorProc, id);
             RemovePropW(window, ContextProperty);
             editors.erase(std::remove(editors.begin(), editors.end(), window), editors.end());
@@ -300,7 +385,7 @@ namespace
         };
         editor->group = create(L"BUTTON", strings.strExtendedOptions.c_str(), BS_GROUPBOX, FirstCheckId - 1,
             RECT{ 8, 476, 383, GroupBottom }, 0, 0, 2);
-        bool success = editor->group != nullptr;
+        bool success = editor->group && SetWindowSubclass(editor->group, GroupProc, 1, 0) != FALSE;
         std::array<int, 2> sliderSpacing{};
         for (size_t position = 0; position < OptionCount && success; ++position)
         {
@@ -311,11 +396,11 @@ namespace
             const int id = FirstCheckId + static_cast<int>(i);
             if (option.IsSlider())
             {
-                editor->labels[i] = create(L"STATIC", option.label->c_str(), SS_LEFT, FirstCheckId + 100 + static_cast<int>(i),
+                editor->labels[i] = create(L"STATIC", option.label->c_str(), SS_LEFT | SS_NOTIFY, FirstCheckId + 100 + static_cast<int>(i),
                     RECT{ x, y, x + 171, y + LabelHeight }, 0, option.blankLines);
                 editor->controls[i] = create(TRACKBAR_CLASSW, L"", WS_TABSTOP | TBS_AUTOTICKS | TBS_TOP | sliderBorder, id,
                     RECT{ x, y + SliderTop, x + 100, y + SliderTop + SliderHeight }, sliderBorderEx, option.blankLines);
-                editor->readouts[i] = create(L"STATIC", L"", SS_LEFT, FirstCheckId + 200 + static_cast<int>(i),
+                editor->readouts[i] = create(L"STATIC", L"", SS_LEFT | SS_NOTIFY, FirstCheckId + 200 + static_cast<int>(i),
                     RECT{ x + 104, y + SliderReadoutTop, x + 171, y + SliderReadoutTop + LabelHeight }, 0, option.blankLines);
                 success = editor->labels[i] && editor->controls[i] && editor->readouts[i];
                 if (success)
@@ -332,7 +417,13 @@ namespace
                     RECT{ x, y, x + 171, y + CheckboxHeight }, 0, option.blankLines);
                 success = editor->controls[i] != nullptr;
             }
+            if (success)
+                for (HWND control : { editor->controls[i], editor->labels[i], editor->readouts[i] })
+                    if (control && !SetWindowSubclass(control, HintProc, 1, reinterpret_cast<DWORD_PTR>(option.hint)))
+                    { success = false; break; }
         }
+        if (success) success = SetWindowPos(editor->group, HWND_BOTTOM, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != FALSE;
         for (HWND parent = window; success && parent && (GetWindowLongPtrW(parent, GWL_STYLE) & WS_CHILD);
             parent = GetParent(parent))
         {
@@ -493,6 +584,8 @@ void SetLanguage(const std::string& language)
                 const size_t index = ToIndex(option.index);
                 SetWindowTextW(option.IsSlider() ? editor->labels[index] : editor->controls[index], option.label->c_str());
             }
+            if (editor->hoveredControl && editor->activeHint)
+                ShowHint(*editor, editor->hoveredControl, *editor->activeHint);
         }
 }
 

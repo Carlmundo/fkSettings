@@ -39,58 +39,156 @@ static void LanguageTests(const char* path)
         { EO::OptionIndex::HerdMingVase, 4917 }, { EO::OptionIndex::HerdSheep, 4930 }
     };
     std::wstring weaponNames[EO::OptionCount];
-    std::wstring english[] = {
-        L"God Mode", L"High Jump", L"Change Kamikaze to Suicide Bomber", L"Sheep Heaven",
-        L"Super Shopper Crates", L"Extended Fuses/Herds", L"Utilities don't end turn",
-        L"Weapons don't end turn", L"Loss of control doesn't end turn", L"Worm select after movement",
-        L"Low Gravity", L"Persistent Rope", L"Rapid Play", L"Indestructible Terrain", L"Invisible Terrain",
-        L"Fast Crates", L"Crate Spy", L"Crate Limit", L"Crate Rate", L"Aqua Sheep", L"Instant Mines",
-        L"Herd weapon: Dynamite", L"Herd weapon: Mine", L"Herd weapon: Ming Vase", L"Herd weapon: Sheep",
-        L"Disable Backflip", L"Disable Unlocked Aim"
-    };
+    EO::SetLanguage("en");
+    std::array<std::wstring, EO::OptionCount> english;
+    for (const auto& option : EO::Options) english[EO::ToIndex(option.index)] = *option.label;
+    const auto englishHerdPrefix = EO::strings.strHerd;
+    const auto englishGroupTitle = EO::strings.strExtendedOptions;
     for (const auto& entry : herdIds)
     {
         wchar_t text[256]{};
         Check(LoadStringW(module, entry.second, text, 256) != 0, "requested native weapon string exists");
         const size_t index = EO::ToIndex(entry.first);
         weaponNames[index] = text;
-        english[index] = std::wstring(L"Herd weapon: ") + text;
+        english[index] = englishHerdPrefix + L": " + text;
     }
+    std::wstring utilityNames;
+    const UINT utilityIds[] = { 4934, 4923, 4922, 4926 };
+    for (size_t i = 0; i < 4; ++i)
+    {
+        wchar_t text[256]{};
+        Check(LoadStringW(module, utilityIds[i], text, 256) != 0, "requested utilities resource string exists");
+        if (i) utilityNames += L", ";
+        utilityNames += text;
+    }
+    utilityNames += L".";
+    Check(EO::strings.hintUtilitiesDontEndTurn.find(utilityNames) != std::wstring::npos,
+        "English utilities hint lists all four native weapon names");
     EO::values = Pattern(EO::OptionCount);
     const auto before = EO::values;
+    EO::SetLanguage("en");
+    std::array<std::wstring, EO::OptionCount> englishHints;
+    for (const auto& option : EO::Options) englishHints[EO::ToIndex(option.index)] = *option.hint;
     for (const char* language : { "en", "", "unknown", " \r\n", " en\r\n", "\xEF\xBB\xBF" "en\r\n" })
     {
         EO::SetLanguage(language);
         for (const auto& option : EO::Options)
+        {
             Check(*option.label == english[EO::ToIndex(option.index)],
                 "English and fallback supply every named option label");
-        Check(EO::strings.strExtendedOptions == L"Extended Options", "English group title");
-        Check(EO::strings.strHerd == L"Herd weapon", "English herd prefix");
+            Check(*option.hint == englishHints[EO::ToIndex(option.index)], "English fallback preserves customized hints");
+        }
+        Check(EO::strings.strExtendedOptions == englishGroupTitle, "English fallback preserves customized group title");
+        Check(EO::strings.strHerd == englishHerdPrefix, "English fallback preserves edited herd prefix");
     }
+    struct ExpectedTranslation
+    {
+        const char* code;
+        const wchar_t* aquaSheep;
+        const wchar_t* herd;
+        const wchar_t* title;
+        bool extended;
+    };
+    const ExpectedTranslation expectedTranslations[] = {
+        { "pt-br", L"Aqua Carneiro", L"Rebanho/manada", L"Op\u00e7\u00f5es de Jogo Estendidas", true },
+        { "nl", L"Waterschaap", L"Kudde", L"Uitgebreide opties", true },
+        { "en", L"Aqua Sheep", L"Herd weapon", englishGroupTitle.c_str(), true },
+        { "fr", L"Mouton aquatique", L"Troupeau", L"Options de jeu \u00e9tendues", true },
+        { "de", L"Aquaschaf", L"Herde", L"Erweiterte Spieloptionen", true },
+        { "it", L"Pecora acquatica", L"Mandria", L"Opzioni estese", true },
+        { "pt", L"Ovelha Aqu\u00e1tica", L"Manada", L"Op\u00e7\u00f5es de jogo alargadas", true },
+        { "ru", L"\u0410\u043a\u0432\u0430-\u043e\u0432\u0446\u0430", L"\u0421\u0442\u0430\u0434\u043e", L"\u0420\u0430\u0441\u0448\u0438\u0440\u0435\u043d\u043d\u044b\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438\u0433\u0440\u044b", true },
+        { "es", L"Oveja acu\u00e1tica", L"Manada", L"Opciones de Juego Extendidas", true },
+        { "es-419", L"Oveja acu\u00e1tica", L"Arma de reba\u00f1o", L"Opciones extendidas", true },
+        { "sv", L"Vattenf\u00e5r", L"Hjord", L"Ut\u00f6kade Spelinst\u00e4llningar", true },
+    };
     for (const char* language : { "cs", "de", "es", "es-419", "fr", "is", "it", "nl", "pl", "pt", "pt-br",
         "ru", "sv", "zh-Hans", "de\r\n", "\xEF\xBB\xBF" "zh-Hans\r\n" })
     {
         EO::SetLanguage(language);
-        for (const auto& option : EO::Options)
+        const ExpectedTranslation* expected = nullptr;
+        const bool keepHints = strcmp(language, "pl") == 0 || strcmp(language, "pt") == 0 ||
+            strcmp(language, "pt-br") == 0 || strcmp(language, "zh-Hans") == 0 ||
+            strcmp(language, "\xEF\xBB\xBF" "zh-Hans\r\n") == 0;
+        if (!keepHints)
+            for (const auto& option : EO::Options)
+                Check(option.hint->empty(), "all hints are empty outside en/pl/pt/pt-br/zh-Hans");
+        for (const auto& entry : expectedTranslations)
+            if (strcmp(language, entry.code) == 0 || (strcmp(language, "de\r\n") == 0 && strcmp(entry.code, "de") == 0))
+                expected = &entry;
+        if (expected)
         {
-            const auto& weaponName = weaponNames[EO::ToIndex(option.index)];
-            Check(*option.label == (weaponName.empty() ? std::wstring{} : L": " + weaponName),
-                "all languages assemble herd labels from blank prefix and specified native resource");
+            Check(EO::strings.strAquaSheep == expected->aquaSheep && EO::strings.strHerd == expected->herd &&
+                EO::strings.strExtendedOptions == expected->title,
+                "language selection preserves Unicode and translated group titles");
+            if (keepHints) Check(!EO::strings.hintGodMode.empty() && !EO::strings.hintAquaSheep.empty(), "Portuguese hints are preserved");
+            for (const auto* text : { &EO::strings.strExtendedFusesHerds, &EO::strings.strWeaponsDontEndTurn,
+                &EO::strings.strLossOfControlDoesntEndTurn, &EO::strings.strPersistentRope,
+                &EO::strings.strCrateRate, &EO::strings.strWormSelectAfterMovement, &EO::strings.strCrateLimit })
+                Check(text->empty() != expected->extended, "extended labels are translated in the supplied languages");
+            if (!keepHints)
+                for (const auto& option : EO::Options)
+                    Check(!option.label->empty(), "all option labels are filled in the requested languages");
+            else for (auto index : { EO::OptionIndex::HighJump, EO::OptionIndex::SheepHeaven, EO::OptionIndex::SuperShopperCrates,
+                EO::OptionIndex::UtilitiesDontEndTurn, EO::OptionIndex::RapidPlay, EO::OptionIndex::IndestructibleTerrain,
+                EO::OptionIndex::InvisibleTerrain, EO::OptionIndex::FastCrates, EO::OptionIndex::InstantMines,
+                EO::OptionIndex::DisableBackflip, EO::OptionIndex::DisableUnlockedAim })
+                Check(EO::FindOption(EO::ToIndex(index))->label->empty() && EO::FindOption(EO::ToIndex(index))->hint->empty(),
+                    "excluded Portuguese translations retain blank placeholders");
         }
-        Check(EO::strings.strExtendedOptions.empty(), "blank group title placeholder");
-        Check(EO::strings.strHerd.empty(), "blank translated herd prefix");
+        else
+            for (const auto& option : EO::Options)
+                if (strcmp(language, "cs") == 0 && option.index == EO::OptionIndex::IndestructibleTerrain)
+                    Check(*option.label == L"Nezni\u010diteln\u00fd ter\u00e9n" && option.hint->empty(),
+                        "preserve customized Czech terrain translation");
+                else Check(option.hint->empty() && (weaponNames[EO::ToIndex(option.index)].empty() ? option.label->empty() :
+                    *option.label == L": " + weaponNames[EO::ToIndex(option.index)]), "remaining untranslated labels stay blank");
+        for (const auto& entry : herdIds)
+            Check(*EO::FindOption(EO::ToIndex(entry.first))->label == EO::strings.strHerd + L": " + weaponNames[EO::ToIndex(entry.first)],
+                "every language composes herd captions with its translated GAME_HERD prefix and native weapon names");
+        if (!expected) Check(EO::strings.strExtendedOptions.empty(), "untranslated group title remains blank");
+        Check(EO::strings.hintHerd.empty(), "unmapped shared herd hint stays blank");
     }
+    for (const auto& entry : herdIds)
+        Check(EO::FindOption(EO::ToIndex(entry.first))->hint == &EO::strings.hintHerd,
+            "all four herd options share the same hint variable");
     Check(EO::values == before, "language changes preserve every stored option value");
     EO::SetLanguage("en");
     EO::languageResources = previousResources;
     FreeLibrary(module);
     Check(*EO::FindOption(EO::ToIndex(EO::OptionIndex::HerdSheep))->label == english[EO::ToIndex(EO::OptionIndex::HerdSheep)],
         "composed labels own their text after resource module unloads");
-    puts("PASS: all languages, English fallback, blank herd prefixes and four native weapon string IDs");
+    EO::SetLanguage("fr");
+    Check(EO::strings.strCrateRate == L"Taux de caisses", "preserve customized French crate rate label");
+    EO::SetLanguage("pt");
+    Check(EO::strings.hintCrateRate.find(L"\"Contagem m\u00e1xima de caixas no mapa no in\u00edcio\"") != std::wstring::npos,
+        "preserved Portuguese hint decodes escaped quotes into display text");
+    EO::SetLanguage("en");
+    puts("PASS: imported WA translations, Unicode, hint composition, English fallback, untranslated placeholders and herd string IDs");
 }
 
 static void SchemeTests()
 {
+    // Anchor the externally consumed byte map independently of the enum values.
+    const EO::OptionIndex storageOrder[] = {
+        EO::OptionIndex::GodMode, EO::OptionIndex::HighJump, EO::OptionIndex::SheepHeaven,
+        EO::OptionIndex::SuperShopperCrates, EO::OptionIndex::ExtendedFusesHerds,
+        EO::OptionIndex::UtilitiesDontEndTurn, EO::OptionIndex::WeaponsDontEndTurn,
+        EO::OptionIndex::LossOfControlDoesntEndTurn, EO::OptionIndex::WormSelectAfterMovement,
+        EO::OptionIndex::LowGravity, EO::OptionIndex::PersistentRope, EO::OptionIndex::RapidPlay,
+        EO::OptionIndex::IndestructibleTerrain, EO::OptionIndex::InvisibleTerrain,
+        EO::OptionIndex::FastCrates, EO::OptionIndex::CrateSpy, EO::OptionIndex::CrateLimit,
+        EO::OptionIndex::CrateRate, EO::OptionIndex::SuicideBomber, EO::OptionIndex::AquaSheep,
+        EO::OptionIndex::InstantMines, EO::OptionIndex::HerdDynamite, EO::OptionIndex::HerdMine,
+        EO::OptionIndex::HerdMingVase, EO::OptionIndex::HerdSheep,
+        EO::OptionIndex::DisableBackflip, EO::OptionIndex::DisableUnlockedAim,
+    };
+    static_assert(sizeof(storageOrder) / sizeof(storageOrder[0]) == EO::OptionCount, "Complete byte map");
+    for (size_t index = 0; index < EO::OptionCount; ++index)
+    {
+        Check(EO::ToIndex(storageOrder[index]) == index, "explicit indexes match the updated byte map");
+        Check(EO::Options[index].index == storageOrder[index], "current visual order matches the updated byte map");
+    }
     auto payload = EO::image + EO::OptionsRva;
     for (size_t i = 0; i < EO::NativePayloadSize; ++i) payload[i] = static_cast<BYTE>(i);
     const std::vector<BYTE> expected(payload, payload + EO::NativePayloadSize);
@@ -302,6 +400,18 @@ static void __fastcall Scroll(void*, void*, int mapMode, SIZE size, const SIZE&,
 { Check(mapMode == MM_TEXT, "native scrolling stays in pixels"); scrollTotal = size; }
 static void __fastcall Mark(void*, void*) { ++edits; }
 static INT_PTR CALLBACK DialogProc(HWND, UINT, WPARAM, LPARAM) { return FALSE; }
+static HWND PointerTarget(HWND parent, POINT point)
+{
+    // Follow sibling Z order and real WM_NCHITTEST responses, as mouse routing
+    // does. Direct BM_CLICK/WM_MOUSEMOVE bypass this and miss covering windows.
+    for (HWND child = GetWindow(parent, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT))
+    {
+        RECT bounds{};
+        if (!(GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE) || !GetWindowRect(child, &bounds) || !PtInRect(&bounds, point)) continue;
+        if (SendMessageW(child, WM_NCHITTEST, 0, MAKELPARAM(point.x, point.y)) == HTCLIENT) return child;
+    }
+    return parent;
+}
 static void EditorTests(const char* path)
 {
     InitCommonControls();
@@ -314,6 +424,11 @@ static void EditorTests(const char* path)
     auto resourceTemplate = static_cast<const DLGTEMPLATE*>(LockResource(LoadResource(module, resource)));
     HWND root = CreateWindowW(L"STATIC", L"Fixture", WS_OVERLAPPEDWINDOW, 0, 0, 700, 500, nullptr, nullptr, nullptr, nullptr);
     HWND container = CreateWindowW(L"STATIC", L"Container", WS_CHILD | WS_VISIBLE, 0, 0, 650, 450, root, nullptr, nullptr, nullptr);
+    HWND hintBox = CreateWindowW(L"STATIC", L"Native hint", WS_CHILD | WS_VISIBLE, 0, 450, 600, 40,
+        root, reinterpret_cast<HMENU>(1003), nullptr, nullptr);
+    HWND unrelated1003 = CreateWindowW(L"BUTTON", L"Unrelated button", WS_CHILD, 0, 0, 10, 10,
+        container, reinterpret_cast<HMENU>(1003), nullptr, nullptr);
+    Check(hintBox && unrelated1003, "create persistent ancestor hint box and colliding button ID");
     HWND window = CreateDialogIndirectParamW(module, resourceTemplate, container, DialogProc, 0);
     Check(window != nullptr, "create actual Dialog 154 fixture");
     HWND nativeTrackbar = nullptr;
@@ -349,32 +464,52 @@ static void EditorTests(const char* path)
     EO::values = Pattern(0);
     Check(EO::AttachEditor(object.data()), "attach controls to actual native form");
     auto editor = static_cast<EO::Editor*>(GetPropW(window, EO::ContextProperty));
+    const auto configuredGodHint = EO::strings.hintGodMode;
+    for (const auto& option : EO::Options)
+        for (HWND control : { editor->controls[EO::ToIndex(option.index)], editor->labels[EO::ToIndex(option.index)],
+            editor->readouts[EO::ToIndex(option.index)] })
+            if (control)
+            {
+                RECT bounds{};
+                GetWindowRect(control, &bounds);
+                Check(PointerTarget(window, POINT{ bounds.left + 5, bounds.top + 5 }) == control,
+                    "real mouse hit testing reaches every option instead of the covering group box");
+            }
+    RECT godBounds{};
+    GetWindowRect(editor->controls[0], &godBounds);
+    HWND hoveredGod = PointerTarget(window, POINT{ godBounds.left + 5, godBounds.top + 5 });
+    SendMessageW(hoveredGod, WM_SETCURSOR, reinterpret_cast<WPARAM>(hoveredGod), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+    Check(EO::WindowText(hintBox) == configuredGodHint, "mouse routing shows user configured English God Mode hint");
+    SendMessageW(hoveredGod, WM_MOUSELEAVE, 0, 0);
     Check(scrollTotal.cx == native.right && scrollTotal.cy > native.bottom, "extend native scroll height without changing width");
-    const int expectedOffsets[] = { 0, 11, 22, 33, 44, 75, 86, 97, 108, 119, 130, 141, 152, 163, 174,
-        0, 11, 22, 53, 84, 95, 106, 117, 128, 139, 150, 161 };
-    const int expectedGaps[] = { 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2,
-        0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2 };
+    const int expectedOffsets[] = { 0, 11, 22, 33, 64, 75, 86, 97, 108, 119, 130, 141, 152, 163,
+        0, 11, 22, 53, 84, 95, 106, 117, 128, 139, 150, 161, 172 };
+    const int expectedGaps[] = { 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2,
+        0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 2 };
     RECT firstCheckbox{}, secondCheckbox{}, firstSliderLabel{}, secondSliderLabel{};
     GetWindowRect(editor->controls[0], &firstCheckbox);
     GetWindowRect(editor->controls[1], &secondCheckbox);
-    GetWindowRect(editor->labels[17], &firstSliderLabel);
-    GetWindowRect(editor->labels[18], &secondSliderLabel);
+    GetWindowRect(editor->labels[EO::ToIndex(EO::OptionIndex::CrateLimit)], &firstSliderLabel);
+    GetWindowRect(editor->labels[EO::ToIndex(EO::OptionIndex::CrateRate)], &secondSliderLabel);
     const LONG checkboxPitch = secondCheckbox.top - firstCheckbox.top;
     const int halfGap = (checkboxPitch + 1) / 2;
     Check(sameSpacing(secondCheckbox.top - firstCheckbox.top, nextNativeCheckbox.top - nativeCheckbox.top),
         "checkbox pitch matches original controls");
-    RECT instantMines{}, herdDynamite{}, rapidPlay{}, terrain{}, aquaSheep{}, herdSheep{}, backflip{};
+    RECT instantMines{}, herdDynamite{}, rapidPlay{}, terrain{}, suicideBomber{}, aquaSheep{}, herdSheep{}, backflip{};
     GetWindowRect(editor->controls[20], &instantMines);
     GetWindowRect(editor->controls[21], &herdDynamite);
     Check(sameSpacing(herdDynamite.top - instantMines.top, checkboxPitch),
         "Aqua Sheep and Instant Mines precede herd weapons without an extra gap");
-    GetWindowRect(editor->controls[12], &rapidPlay);
-    GetWindowRect(editor->controls[13], &terrain);
+    GetWindowRect(editor->controls[EO::ToIndex(EO::OptionIndex::RapidPlay)], &rapidPlay);
+    GetWindowRect(editor->controls[EO::ToIndex(EO::OptionIndex::IndestructibleTerrain)], &terrain);
+    GetWindowRect(editor->controls[EO::ToIndex(EO::OptionIndex::SuicideBomber)], &suicideBomber);
     GetWindowRect(editor->controls[19], &aquaSheep);
+    Check(sameSpacing(aquaSheep.top - suicideBomber.top, checkboxPitch),
+        "Suicide Bomber immediately precedes Aqua Sheep");
     GetWindowRect(editor->controls[24], &herdSheep);
     GetWindowRect(editor->controls[25], &backflip);
     Check(sameSpacing(terrain.top - rapidPlay.top, checkboxPitch + halfGap) &&
-        sameSpacing(aquaSheep.top - secondSliderLabel.top,
+        sameSpacing(suicideBomber.top - secondSliderLabel.top,
             nativeSecondSliderLabel.top - nativeFirstSliderLabel.top + halfGap) &&
         sameSpacing(backflip.top - herdSheep.top, checkboxPitch + halfGap),
         "blank-line gaps are half a checkbox row including the new terrain gap");
@@ -392,8 +527,8 @@ static void EditorTests(const char* path)
             ++extendedGroupCount;
     }
     Check(extendedGroupCount == 1, "Extended Options has only the main group box");
-    Check((GetWindowLongPtrW(editor->controls[10], GWL_STYLE) & BS_TYPEMASK) == BS_AUTOCHECKBOX &&
-        !editor->labels[10] && !editor->readouts[10], "Low Gravity is a checkbox without slider label or readout");
+    Check((GetWindowLongPtrW(editor->controls[EO::ToIndex(EO::OptionIndex::LowGravity)], GWL_STYLE) & BS_TYPEMASK) == BS_AUTOCHECKBOX &&
+        !editor->labels[EO::ToIndex(EO::OptionIndex::LowGravity)] && !editor->readouts[EO::ToIndex(EO::OptionIndex::LowGravity)], "Low Gravity is a checkbox without slider label or readout");
     for (size_t i = 0; i < EO::OptionCount; ++i)
     {
         const bool slider = EO::Options[i].IsSlider();
@@ -411,7 +546,7 @@ static void EditorTests(const char* path)
         Check(GetWindowLongPtrW(control, GWL_STYLE) & WS_TABSTOP, "option is keyboard reachable");
         RECT labelBounds{};
         GetWindowRect(labelWindow, &labelBounds);
-        RECT expected{ i < 15 ? 14 : 205, 490 + expectedOffsets[i], 0, 0 };
+        RECT expected{ i < 14 ? 14 : 205, 490 + expectedOffsets[i], 0, 0 };
         MapDialogRect(window, &expected);
         expected.top += expectedGaps[i] * halfGap;
         MapWindowPoints(window, nullptr, reinterpret_cast<POINT*>(&expected), 2);
@@ -430,7 +565,7 @@ static void EditorTests(const char* path)
         if (slider)
         {
             const int maximum = 100;
-            const UINT zeroString = i == 4 ? 141 : 99;
+            const UINT zeroString = i == EO::ToIndex(EO::OptionIndex::SuperShopperCrates) ? 141 : 99;
             Check(SendMessageW(control, TBM_GETRANGEMIN, 0, 0) == 0 &&
                 SendMessageW(control, TBM_GETRANGEMAX, 0, 0) == maximum, "requested slider range");
             Check(bounds.left == labelBounds.left && bounds.top >= labelBounds.bottom,
@@ -451,7 +586,7 @@ static void EditorTests(const char* path)
             Check(EO::Options[i].zeroStringId == zeroString, "zero uses requested string ID");
             wchar_t readout[100]{};
             GetWindowTextW(editor->readouts[i], readout, 100);
-            Check(wcscmp(readout, i == 4 ? L"No" : L"Default") == 0, "zero readout fallback");
+            Check(wcscmp(readout, i == EO::ToIndex(EO::OptionIndex::SuperShopperCrates) ? L"No" : L"Default") == 0, "zero readout fallback");
             wchar_t localized[100]{};
             Check(LoadStringW(module, zeroString, localized, 100) != 0 && EO::ValueText(EO::Options[i], module) == localized,
                 "zero text loads actual frontend string resource");
@@ -459,8 +594,8 @@ static void EditorTests(const char* path)
             SendMessageW(control, WM_KEYUP, VK_END, 0);
             Check(EO::values[storageIndex] == maximum, "keyboard End on actual trackbar writes maximum immediately");
             GetWindowTextW(editor->readouts[i], readout, 100);
-            Check(std::wstring(readout) == (i == 4 ? L"Unlimited" : std::to_wstring(maximum)), "maximum readout");
-            if (i == 4)
+            Check(std::wstring(readout) == (i == EO::ToIndex(EO::OptionIndex::SuperShopperCrates) ? L"Unlimited" : std::to_wstring(maximum)), "maximum readout");
+            if (i == EO::ToIndex(EO::OptionIndex::SuperShopperCrates))
             {
                 Check(LoadStringW(module, 4950, localized, 100) != 0 && EO::ValueText(EO::Options[i], module) == localized,
                     "Super Shopper Crates maximum loads frontend Unlimited string");
@@ -497,9 +632,55 @@ static void EditorTests(const char* path)
     Check(wcscmp(lastLabel, L"Disable Unlocked Aim") == 0, "Disable Unlocked Aim is last");
     const auto beforeLanguageChange = EO::values;
     const int editsBeforeLanguageChange = edits;
+    for (const auto& option : EO::Options)
+    {
+        auto& hint = *const_cast<std::wstring*>(option.hint);
+        hint = L"Hover hint " + std::to_wstring(EO::ToIndex(option.index)) + L"\n\x0416\x4E2D";
+        const size_t index = EO::ToIndex(option.index);
+        for (HWND control : { editor->controls[index], editor->labels[index], editor->readouts[index] })
+            if (control)
+            {
+                SendMessageW(control, WM_MOUSEMOVE, 0, MAKELPARAM(1, 1));
+                Check(EO::WindowText(hintBox) == hint, "checkbox, trackbar, title and readout show option hint");
+                SetWindowTextW(hintBox, L"Native cursor hint");
+                SendMessageW(control, WM_SETCURSOR, reinterpret_cast<WPARAM>(control), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+                Check(EO::WindowText(hintBox) == hint, "custom hint takes precedence after frontend cursor handling");
+                SendMessageW(control, WM_MOUSELEAVE, 0, 0);
+                Check(EO::WindowText(hintBox).empty(), "leaving an extended control clears its hint");
+            }
+    }
+    SetWindowTextW(hintBox, L"Native background hint");
+    RECT groupBounds{};
+    GetWindowRect(editor->group, &groupBounds);
+    POINT groupPoint{ groupBounds.left + 5, groupBounds.top + 5 };
+    Check(PointerTarget(window, groupPoint) == window, "group background passes hits to page");
+    ScreenToClient(window, &groupPoint);
+    SendMessageW(window, WM_MOUSEMOVE, 0, MAKELPARAM(groupPoint.x, groupPoint.y));
+    Check(EO::WindowText(hintBox) == L"Native background hint", "main group does not replace hint box text");
+    DWORD_PTR groupHintReference = 0;
+    Check(!GetWindowSubclass(editor->group, EO::HintProc, 1, &groupHintReference), "main group has no hint handler");
+    SendMessageW(window, WM_MOUSELEAVE, 0, 0);
+    Check(SendMessageW(editor->group, WM_NCHITTEST, 0, 0) == HTTRANSPARENT, "group retains mouse transparency");
+    for (HWND control : { editor->labels[EO::ToIndex(EO::OptionIndex::SuperShopperCrates)], editor->readouts[EO::ToIndex(EO::OptionIndex::SuperShopperCrates)] })
+    {
+        RECT bounds{};
+        GetWindowRect(control, &bounds);
+        Check(SendMessageW(control, WM_NCHITTEST, 0, MAKELPARAM(bounds.left + 1, bounds.top + 1)) == HTCLIENT,
+            "slider title and readout accept mouse hits for hints");
+    }
+    SendMessageW(editor->controls[0], WM_MOUSEMOVE, 0, 0);
+    SendMessageW(editor->controls[1], WM_MOUSEMOVE, 0, 0);
+    SendMessageW(editor->controls[0], WM_MOUSELEAVE, 0, 0);
+    Check(EO::WindowText(hintBox) == EO::strings.hintHighJump, "late leave does not erase next extended hint");
+    SetWindowTextW(hintBox, L"Next native hint");
+    SendMessageW(editor->controls[1], WM_MOUSELEAVE, 0, 0);
+    Check(EO::WindowText(hintBox) == L"Next native hint", "leave does not erase a native control hint");
+    Check(EO::WindowText(unrelated1003) == L"Unrelated button", "hint lookup does not write to other controls with ID 1003");
+    SendMessageW(editor->controls[0], WM_MOUSEMOVE, 0, 0);
     for (const char* language : { "de", "en" })
     {
         EO::SetLanguage(language);
+        Check(EO::WindowText(hintBox) == EO::strings.hintGodMode, "language change refreshes currently hovered customized hint");
         wchar_t text[150]{};
         GetWindowTextW(editor->group, text, 150);
         Check(text == EO::strings.strExtendedOptions, "language updates attached group title");
@@ -515,6 +696,43 @@ static void EditorTests(const char* path)
     }
     Check(EO::values == beforeLanguageChange && edits == editsBeforeLanguageChange,
         "language refresh does not edit the scheme");
+    SendMessageW(editor->controls[0], WM_MOUSELEAVE, 0, 0);
+    puts("PASS: persistent hint box 1003, all option surfaces, shared herd hints, language refresh and hover transitions");
+    for (const auto& option : EO::Options)
+    {
+        const size_t index = EO::ToIndex(option.index);
+        const HWND control = editor->controls[index];
+        POINT click{ 5, 5 };
+        POINT release = click;
+        if (option.IsSlider())
+        {
+            RECT channel{}, thumb{};
+            SendMessageW(control, TBM_GETCHANNELRECT, 0, reinterpret_cast<LPARAM>(&channel));
+            SendMessageW(control, TBM_GETTHUMBRECT, 0, reinterpret_cast<LPARAM>(&thumb));
+            click = POINT{ (thumb.left + thumb.right) / 2, (thumb.top + thumb.bottom) / 2 };
+            release = POINT{ channel.left + 2, click.y };
+        }
+        POINT screen = click;
+        ClientToScreen(control, &screen);
+        const HWND target = PointerTarget(window, screen);
+        Check(target == control, "pointer reaches checkbox and slider at click point");
+        const auto beforeClick = EO::values;
+        SendMessageW(target, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(click.x, click.y));
+        if (option.IsSlider()) SendMessageW(target, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(release.x, release.y));
+        SendMessageW(target, WM_LBUTTONUP, 0, MAKELPARAM(release.x, release.y));
+        if (!(option.IsSlider() ? EO::values[index] < beforeClick[index] : EO::values[index] == 1 - beforeClick[index]))
+            fprintf(stderr, "Mouse click failed at option %zu: before %u after %u, check/position %lld, visible %d, enabled %d\n",
+                index, beforeClick[index], EO::values[index], static_cast<long long>(SendMessageW(control,
+                    option.IsSlider() ? TBM_GETPOS : BM_GETCHECK, 0, 0)), IsWindowVisible(control), IsWindowEnabled(control));
+        Check(option.IsSlider() ? EO::values[index] < beforeClick[index] : EO::values[index] == 1 - beforeClick[index],
+            "hit-tested mouse click edits every checkbox and slider");
+        for (size_t other = 0; other < EO::OptionCount; ++other)
+            if (other != index) Check(EO::values[other] == beforeClick[other], "pointer click edits only selected option");
+        EO::values = beforeClick;
+        EO::RefreshEditors();
+    }
+    puts("PASS: mouse hit testing and button input reach all 27 options with group transparent and behind controls");
+    const int editsBeforeSave = edits;
     auto saved = static_cast<FILE*>(Open("Release/extended-options-test.opt", "w+b"));
     EO::values = Pattern(EO::OptionCount);
     SW::WriteFile(EO::image + EO::OptionsRva, 128, 1, saved);
@@ -527,7 +745,7 @@ static void EditorTests(const char* path)
         Check(EO::Options[i].IsSlider() ? SendMessageW(editor->controls[i], TBM_GETPOS, 0, 0) == EO::Options[i].maximum :
             SendMessageW(editor->controls[i], BM_GETCHECK, 0, 0) == BST_CHECKED,
             "loading another scheme refreshes all checks and sliders");
-    Check(edits == EO::OptionCount, "loading scheme does not mark it User defined");
+    Check(edits == editsBeforeSave, "loading scheme does not mark it User defined");
     EO::ResetDefault();
     for (size_t i = 0; i < EO::OptionCount; ++i)
         if (EO::Options[i].IsSlider())
@@ -535,23 +753,27 @@ static void EditorTests(const char* path)
             Check(SendMessageW(editor->controls[i], TBM_GETPOS, 0, 0) == 0, "Default resets numeric slider");
             wchar_t text[100]{};
             GetWindowTextW(editor->readouts[i], text, 100);
-            Check(wcscmp(text, i == 4 ? L"No" : L"Default") == 0, "Default restores special zero label");
+            Check(wcscmp(text, i == EO::ToIndex(EO::OptionIndex::SuperShopperCrates) ? L"No" : L"Default") == 0, "Default restores special zero label");
         }
         else Check(SendMessageW(editor->controls[i], BM_GETCHECK, 0, 0) == BST_UNCHECKED, "Default clears visible checkbox");
+    EO::strings.hintGodMode = L"Closing hint";
+    SendMessageW(editor->controls[0], WM_MOUSEMOVE, 0, 0);
     DestroyWindow(window);
+    Check(EO::WindowText(hintBox).empty(), "destroying hovered editor clears its hint without a dangling context");
+    EO::SetLanguage("en");
     Check(EO::editors.empty() && !(GetWindowLongPtrW(container, GWL_EXSTYLE) & WS_EX_CONTROLPARENT), "editor cleanup restores ancestor styles");
 
     // Move every descriptor to a different visual position while preserving
     // its fixed index. Exercise actual control notifications in this layout.
     std::array<EO::Option, EO::OptionCount> moved{};
     std::copy(EO::Options, EO::Options + EO::OptionCount, moved.begin());
-    std::rotate(moved.begin(), moved.begin() + 1, moved.begin() + 15);
-    std::reverse(moved.begin() + 15, moved.end());
+    std::rotate(moved.begin(), moved.begin() + 1, moved.begin() + 14);
+    std::rotate(moved.begin() + 14, moved.begin() + 15, moved.end());
     int row[2]{};
     for (size_t position = 0; position < moved.size(); ++position)
     {
         auto& option = moved[position];
-        option.column = position < 15 ? 0 : 1;
+        option.column = position < 14 ? 0 : 1;
         option.row = row[option.column];
         option.blankLines = 0;
         row[option.column] += option.IsSlider() ? 2 : 1;

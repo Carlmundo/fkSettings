@@ -7,8 +7,8 @@ and existing scrolling. Controls flow down the left column, then the right,
 with blank gaps half a checkbox row high, rounded to the nearest pixel.
 Persistent Rope precedes Rapid Play in the left column, followed by a blank
 gap and the two terrain options. The right column starts with Fast Crates,
-Crate Spy, Crate Limit and Crate Rate. Aqua Sheep and Instant Mines precede
-the four herd weapon checkboxes. Checkboxes
+Crate Spy, Crate Limit and Crate Rate. Suicide Bomber is immediately before
+Aqua Sheep, followed by Instant Mines and the four herd weapon checkboxes. Checkboxes
 match the native 10-dialog-unit height and 11-dialog-unit pitch. Slider labels
 and readouts are 8 dialog units high, with each trackbar starting 10 dialog
 units below its label and successive slider rows 31 dialog units apart. Only the
@@ -45,14 +45,16 @@ unsigned one-byte values in fixed index order, totaling 166 bytes (`0xA6`). Ther
 is no padding, version field, bit packing or 32-bit conversion. Schemes retain
 the `PLUS` signature even when every option is zero.
 
-Each option has a permanent zero-based index defined by `OptionIndex` in
-[`ExtendedOptions.h`](../fkSettings/ExtendedOptions.h). These indexes preserve
-the existing byte offsets: `.opt` offset = **139 + index** and `extended.dat`
-offset = **4 + index**. UI controls and stored values use this index as well.
-Moving or renaming a control must retain its index. To move it, reorder its
-descriptor in `Options` and adjust its row/column/blank gaps; never renumber
-the enum. A compile-time check rejects missing, duplicate or out-of-range
-indexes. The table is in storage order, independent of future visual ordering.
+Each option has an explicit zero-based index defined by `OptionIndex` in
+[`ExtendedOptions.h`](../fkSettings/ExtendedOptions.h). The byte offsets are
+`.opt` offset = **139 + index** and `extended.dat` offset = **4 + index**.
+UI controls and stored values use this index as well. This build intentionally
+renumbers indexes to match the current visual order: Suicide Bomber is index 18,
+immediately before Aqua Sheep at index 19. Options previously at indexes 3–18
+move to indexes 2–17. Earlier PLUS schemes are not migrated; consumers must use
+the updated map below. For future layout-only moves, retain the explicit index
+unless intentionally changing the file format. A compile-time check rejects
+missing, duplicate or out-of-range indexes.
 
 Before the native game starts, the DLL writes a 31-byte extension block
 to **`Data/extended.dat`**, beside `Data/game.dat`. When any option is nonzero,
@@ -67,23 +69,23 @@ extended-option builds are not migrated.
 | --- | --- | --- | --- | --- |
 | 0 | God Mode | 0–1 | `0x8B` (139) | `0x04` (4) |
 | 1 | High Jump | 0–1 | `0x8C` (140) | `0x05` (5) |
-| 2 | Change Kamikaze to Suicide Bomber | 0–1 | `0x8D` (141) | `0x06` (6) |
-| 3 | Sheep Heaven | 0–1 | `0x8E` (142) | `0x07` (7) |
-| 4 | Super Shopper Crates | 0–100 | `0x8F` (143) | `0x08` (8) |
-| 5 | Extended Fuses/Herds | 0–1 | `0x90` (144) | `0x09` (9) |
-| 6 | Utilities don't end turn | 0–1 | `0x91` (145) | `0x0A` (10) |
-| 7 | Weapons don't end turn | 0–1 | `0x92` (146) | `0x0B` (11) |
-| 8 | Loss of control doesn't end turn | 0–1 | `0x93` (147) | `0x0C` (12) |
-| 9 | Worm select after movement | 0–1 | `0x94` (148) | `0x0D` (13) |
-| 10 | Low Gravity | 0–1 | `0x95` (149) | `0x0E` (14) |
-| 11 | Persistent Rope | 0–1 | `0x96` (150) | `0x0F` (15) |
-| 12 | Rapid Play | 0–1 | `0x97` (151) | `0x10` (16) |
-| 13 | Indestructible Terrain | 0–1 | `0x98` (152) | `0x11` (17) |
-| 14 | Invisible Terrain | 0–1 | `0x99` (153) | `0x12` (18) |
-| 15 | Fast Crates | 0–1 | `0x9A` (154) | `0x13` (19) |
-| 16 | Crate Spy | 0–1 | `0x9B` (155) | `0x14` (20) |
-| 17 | Crate Limit | 0–100 | `0x9C` (156) | `0x15` (21) |
-| 18 | Crate Rate | 0–100 | `0x9D` (157) | `0x16` (22) |
+| 2 | Sheep Heaven | 0–1 | `0x8D` (141) | `0x06` (6) |
+| 3 | Super Shopper Crates | 0–100 | `0x8E` (142) | `0x07` (7) |
+| 4 | Extended Fuses/Herds | 0–1 | `0x8F` (143) | `0x08` (8) |
+| 5 | Utilities don't end turn | 0–1 | `0x90` (144) | `0x09` (9) |
+| 6 | Weapons don't end turn | 0–1 | `0x91` (145) | `0x0A` (10) |
+| 7 | Loss of control doesn't end turn | 0–1 | `0x92` (146) | `0x0B` (11) |
+| 8 | Worm select after movement | 0–1 | `0x93` (147) | `0x0C` (12) |
+| 9 | Low Gravity | 0–1 | `0x94` (148) | `0x0D` (13) |
+| 10 | Persistent Rope | 0–1 | `0x95` (149) | `0x0E` (14) |
+| 11 | Rapid Play | 0–1 | `0x96` (150) | `0x0F` (15) |
+| 12 | Indestructible Terrain | 0–1 | `0x97` (151) | `0x10` (16) |
+| 13 | Invisible Terrain | 0–1 | `0x98` (152) | `0x11` (17) |
+| 14 | Fast Crates | 0–1 | `0x99` (153) | `0x12` (18) |
+| 15 | Crate Spy | 0–1 | `0x9A` (154) | `0x13` (19) |
+| 16 | Crate Limit | 0–100 | `0x9B` (155) | `0x14` (20) |
+| 17 | Crate Rate | 0–100 | `0x9C` (156) | `0x15` (21) |
+| 18 | Suicide Bomber | 0–1 | `0x9D` (157) | `0x16` (22) |
 | 19 | Aqua Sheep | 0–1 | `0x9E` (158) | `0x17` (23) |
 | 20 | Instant Mines | 0–1 | `0x9F` (159) | `0x18` (24) |
 | 21 | Herd weapon: Dynamite | 0–1 | `0xA0` (160) | `0x19` (25) |
@@ -182,26 +184,33 @@ operand signatures are checked against the relocated executable image.
 `dllmain.cpp` passes the existing `lang` value from `language.txt` to
 `ExtendedOptions::SetLanguage` when assigning labels. The switch in
 `fkSettings/ExtendedOptionsStrings.h` defines variables named after each
-permanent option index, such as `strGodMode`, `strHighJump` and
+explicit option index, such as `strGodMode`, `strHighJump` and
 `strSuicideBomber`, plus `strExtendedOptions` for the group title.
 The descriptors reference these variables instead of literal captions.
 
-`strHerd` is `L"Herd weapon"` in English/default and `L""` in the other
-language cases. After the switch, the four herd captions are assembled as
+`strHerd` uses the imported `GAME_HERD` translation, with customized English
+(`L"Herd weapon"`) and Latin American Spanish (`L"Arma de rebaño"`) prefixes.
+After the switch, the four herd captions are assembled as
 `strHerd + L": " +` the frontend weapon string: Dynamite uses ID 4915,
 Mine uses 4916, Ming Vase uses 4917 and Sheep uses 4930. Thus their weapon
 names come from the game resources in every language, even while the prefix
 is blank. The variables own their text as `std::wstring` so composed captions
 remain valid after the function returns and on later language changes.
 
-The `en`/default case contains the English labels. Each other supported
-language (`cs`, `de`, `es`, `es-419`, `fr`, `is`, `it`, `nl`, `pl`, `pt`,
-`pt-br`, `ru`, `sv`, `zh-Hans`) has its own case with empty `L""` assignments
-ready for translation. These remain blank until filled in. Missing or
-unrecognized language codes use English; surrounding whitespace and a UTF-8
-BOM are accepted. Use wide string literals (`L"..."`) for translated text.
-Language changes also refresh captions on any attached editor without
-changing option values, indexes or file/packet bytes.
+Each editable label is followed by its corresponding `hint...` variable and
+assignment, such as `strGodMode` then `hintGodMode`. Unmapped hints remain
+editable placeholders. Fill them with wide string literals, including
+`\n` for multiple lines. The four derived herd labels share `hintHerd` beneath
+`strHerd`. The main group has no hint variable or hover hint handler.
+
+Hovering a checkbox, slider, slider caption or numeric readout writes its hint
+to the existing ancestor Static control 1003. The group remains behind the
+options and returns transparent mouse hits. Slider captions/readouts use
+`SS_NOTIFY` to receive their own mouse input without making the group opaque.
+Custom hints run after the native cursor handler and track mouse departure,
+preserving a newer hint from another control. Language changes refresh an
+active hint, and editor destruction clears any hint it still owns. Hints do
+not change option values or file/packet bytes.
 
 ## Build and verification
 
@@ -214,7 +223,10 @@ MSBuild.exe tests/ExtendedOptionsTests.vcxproj /t:Build /p:Configuration=Release
 ./Release/ExtendedOptionsTests.exe 'D:/Games/Worms 2/frontend.exe'
 ```
 
-Regression tests check every language case, English fallback, blank translation
+Regression tests follow sibling Z order and `WM_NCHITTEST` to route mouse
+input, then send button down/up events to verify every checkbox and slider
+remains clickable. They also preserve customized English hint strings and
+check every language case, English fallback, blank translation
 placeholders and caption updates on an attached dialog, then exercise the
 production shared hooks, all 27 independent
 settings, every numeric slider value, all-maximum/all-zero settings, byte
