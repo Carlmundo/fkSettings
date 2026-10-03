@@ -95,7 +95,7 @@ namespace ExtendedOptions
             strings.strHighJump = L"Vysok\u00E9 skoky";
             strings.hintHighJump = L"\nSk\u00E1k\u00E1n\u00ED v\u00FD\u0161e.";
             strings.strSheepHeaven = L"Ov\u010D\u00ED nebe";
-            strings.hintSheepHeaven = L"Bedny obsahuj\u00ED ov\u010D\u00ED zbran\u011B a doba letu super ovce je prodlou\u017Eena.";
+            strings.hintSheepHeaven = L"\nBedny obsahuj\u00ED ov\u010D\u00ED zbran\u011B a doba letu super ovce je prodlou\u017Eena.";
             strings.strSuperShopperCrates = L"Bedny pro super z\u00E1kazn\u00EDka";
             strings.hintSuperShopperCrates = L"\nBedny obsahuj\u00ED tajn\u00E9 zbran\u011B.";
             strings.strExtendedFusesHerds = L"Roz\u0161\u00ED\u0159en\u00E1 z\u00E1paln\u00E1 \u0161\u0148\u016Fra / st\u00E1do";
