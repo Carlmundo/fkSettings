@@ -477,21 +477,19 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
         pWnd->GetWindowTextW(title);
         double scale = GetDpiScaleFactor(returnVal);
 
-        if (reposHintText) {
-            if (scale == 2) {
-                CWnd* txtHint = pWnd->GetDlgItem(1003);
-                if (txtHint) {
-                    CRect rectHint;
-                    txtHint->GetWindowRect(&rectHint);
-                    txtHint->GetParent()->ScreenToClient(&rectHint);
-                    rectHint.bottom = rectHint.bottom + 4;
-                    txtHint->MoveWindow(&rectHint);
-                    reposHintText = false;
-                }
-            }
-            else {
+        if (reposHintText && scale == 2) {
+            CWnd* txtHint = pWnd->GetDlgItem(1003);
+            if (txtHint) {
+                CRect rectHint;
+                txtHint->GetWindowRect(&rectHint);
+                txtHint->GetParent()->ScreenToClient(&rectHint);
+                rectHint.bottom = rectHint.bottom + 4;
+                txtHint->MoveWindow(&rectHint);
                 reposHintText = false;
             }
+        }
+        else {
+            reposHintText = false;
         }
         
         if (reposExitButton){
