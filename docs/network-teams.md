@@ -13,6 +13,10 @@ bitmap 244 in the **Teams** box, including when selected: one computer for skill
 The image-list and tree-control APIs used are compatible with Windows XP.
 Joining players see these icons while waiting in the lobby, including teams
 already selected before they joined and teams subsequently removed or re-added.
+Computer teams keep their difficulty in subsequent rounds of matches requiring
+more than one victory, on both the host and joining computers.
+The end-of-round team results also show the matching one-, two-, or
+three-computer icon on both computers.
 
 Install the new `fkSettings.dll` in the Worms 2 game directory on **every player's
 computer**, then restart `frontend.exe`. An older DLL or an unmodified client
@@ -38,6 +42,10 @@ The game engine already represents computer controllers as negative skill levels
 from -1 to -100. The DLL hooks the native game-data writer at RVA `0x26E38` and
 changes these bytes only while serializing a network launch. It recognizes the
 host and joining launch call sites by return addresses `0x35950` and `0x3B3D5`.
+The results dialogs use different launch calls for subsequent rounds, at return
+addresses `0x61B13` (host) and `0x6406A` (joining player). These calls also apply
+the CPU controller conversion. Previously, only the first-round calls were
+recognized, so later rounds wrote the lobby owner's controller instead of AI.
 Other writers, including local-game launches, run unchanged. The lobby's owner
 bytes are restored after writing, including failed writes and C++ exceptions.
 
@@ -62,8 +70,21 @@ database, including for remote rows with saved index -1. No controller bytes
 or tree selection/ownership metadata change. Remote human rows retain their
 native icon even when their name or saved index matches a local CPU team.
 
+The end-of-round team list already contains bitmap 244's native 32×16 sprites.
+Its native refresh selects CPU images only for negative controller bytes, so
+network CPU teams would otherwise get the worm image for their lobby owner.
+The DLL hooks results initialization at RVA `0x881D6` and refresh at `0x88336`.
+Initialization recognizes the host and joining callers at return addresses
+`0x61240` and `0x6351E` and attaches that context to the list control. After each
+native refresh, the DLL selects image 1/2/3 using the host's saved skills or the
+joining player's received launch metadata. Rows are matched by their native
+game-slot item data and team name, preserving victory totals and selection.
+The existing image list is reused without copying or widening it. Local-game
+results retain native controller-based icons, and the context is removed when
+the control closes. No extra network messages are needed.
+
 Team records are at game-object offsets `0x484 + slot * 0x108`. Each record begins
-with the controller byte, worm count, then a 17-byte team name. The writer omits
+with the controller byte, victories won, then a 17-byte team name. The writer omits
 the object's `0x1C` prefix, so controllers are at `game.dat` offsets
 `0x468 + slot * 0x108`. The native `0xCD4`-byte file format stays intact.
 
@@ -94,6 +115,16 @@ subtracts those four bytes before parsing, as it does for weapon schemes.
 Clients match AI teams by name when writing their game data, so native team
 reordering does not change which team gets each difficulty. Ownership remains
 available to the lobby throughout team selection and after launching.
+
+Subsequent rounds send the same extended start message through the existing
+broadcast hook. Joining players then use a separate results-dialog dispatcher
+at RVA `0x63AC6`, which is also hooked. The results dialog's constructor resolves
+the host player ID into offset `0xA8`. The DLL uses that ID to validate and accept
+the next round's CPU settings before the native start handler saves `game.dat`.
+This dispatcher applies the same transport length correction, extension
+validation, stale-state clearing, and truncated-start rejection as the initial
+lobby dispatcher. Its original instructions and the new launch callers are
+validated before installation, and hook setup rolls back on failure.
 
 ## Lobby icon messages
 
@@ -145,14 +176,24 @@ Verified on the supplied frontend:
   difficulty boundaries, native tree rebuilds, add/remove/re-add updates,
   conflicting local saved teams, invalid/legacy metadata, and guarded lobby
   packet buffers on both transports.
+- A real Windows list-control fixture verifies results-screen CPU icons at
+  every difficulty boundary, host and client skill sources, repeated refreshes,
+  reordered rows, unchanged native images, human icons, victory totals,
+  selection, local results, and cleanup. Supplied native results initialization
+  callers also execute the production hook with their real return addresses.
 - AI settings survive team reordering and both transport length conventions.
 - Non-host messages, stale state, malformed names, duplicate names, invalid
   difficulty, and truncated packets are covered, including guarded receive buffers.
 - The game-writer hook and host filter install alongside all ten secret-weapon
   hooks on a non-running `SEC_IMAGE` mapping of the real executable.
-- The supplied host and client launch instructions execute the production
-  detour with their native return addresses; other writer callers retain native
-  controller handling.
+- The supplied first-round and subsequent host/client launch instructions
+  execute the production detour with their native return addresses. Later-round
+  checks cover difficulties 1, 50, and 100 with victories required set to 2,
+  preserving human controllers, victories won, and lobby ownership. Other
+  writer callers retain native controller handling.
+- Repeated results-dialog start packets update joining players' exact CPU
+  difficulty before native serialization on both transports, including guarded
+  malformed packets and messages from other players.
 - Existing secret-weapon scheme, network, stock, editor, and focus tests pass.
 
 A live multiplayer match has not been verified. The transport and serialization

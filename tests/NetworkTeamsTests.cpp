@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <vector>
 #include "../fkSettings/NetworkTeams.cpp"
@@ -298,6 +299,143 @@ static void TeamIconTests(const char* path)
     puts("PASS: Teams tree retains bitmap 244's three exact CPU sprites at native difficulty thresholds, preserves humans/owners and cleans up its private images");
     puts("PASS: joining dialog CPU icons, late-join snapshots, live add/remove/re-add updates, stale metadata, independent local database and guarded packets on both transports");
 }
+static void __fastcall BuildResults(void* object, void*)
+{
+    HWND window = *reinterpret_cast<HWND*>(static_cast<BYTE*>(object) + 0x1c);
+    SendMessageA(window, LVM_DELETEALLITEMS, 0, 0);
+    // Reverse the rows to ensure the icon update uses the native slot lParam,
+    // rather than assuming that list rows have the same order as game slots.
+    for (int slot = 5; slot >= 0; --slot)
+    {
+        BYTE* team = NT::image + NT::GameRva + NT::TeamOffset + slot * NT::TeamStride;
+        if (!team[2]) continue;
+        const int controller = static_cast<signed char>(team[0]);
+        LVITEMA item{};
+        item.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM | LVIF_STATE;
+        item.iItem = ListView_GetItemCount(window);
+        item.pszText = reinterpret_cast<char*>(team + 2);
+        item.iImage = controller >= 0 ? 0 : 1 + (controller < -66 ? 2 : controller < -33 ? 1 : 0);
+        item.lParam = slot;
+        item.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
+        item.state = slot == 2 ? LVIS_SELECTED | LVIS_FOCUSED : 0;
+        const int row = static_cast<int>(SendMessageA(window, LVM_INSERTITEMA, 0, reinterpret_cast<LPARAM>(&item)));
+        char score[8];
+        sprintf_s(score, "%u", team[1]);
+        LVITEMA wins{};
+        wins.iSubItem = 1;
+        wins.pszText = score;
+        SendMessageA(window, LVM_SETITEMTEXTA, row, reinterpret_cast<LPARAM>(&wins));
+    }
+}
+static void __fastcall InitializeResultsFixture(void* object, void*)
+{
+    NT::RefreshComputerResults(object, nullptr);
+}
+static void ResultsIconTests(const char* path)
+{
+    INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_LISTVIEW_CLASSES };
+    Check(InitCommonControlsEx(&controls), "initialize results list fixture");
+    HWND window = CreateWindowExA(0, WC_LISTVIEWA, "Results fixture", WS_POPUP | LVS_REPORT | LVS_SINGLESEL,
+        0, 0, 240, 150, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    Check(window != nullptr, "create hidden results list");
+    LVCOLUMNA column{};
+    column.mask = LVCF_TEXT | LVCF_WIDTH;
+    column.pszText = const_cast<char*>("Team");
+    column.cx = 160;
+    SendMessageA(window, LVM_INSERTCOLUMNA, 0, reinterpret_cast<LPARAM>(&column));
+    column.pszText = const_cast<char*>("Wins");
+    column.cx = 60;
+    SendMessageA(window, LVM_INSERTCOLUMNA, 1, reinterpret_cast<LPARAM>(&column));
+    HMODULE resources = LoadLibraryExA(path, nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    HBITMAP bitmap = static_cast<HBITMAP>(LoadImageA(resources, MAKEINTRESOURCEA(244), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION));
+    HIMAGELIST images = ImageList_Create(32, 16, ILC_COLOR32 | ILC_MASK, 5, 0);
+    Check(resources && bitmap && images && ImageList_AddMasked(images, bitmap, RGB(255, 0, 255)) == 0,
+        "load the results list's native bitmap 244 image list");
+    ListView_SetImageList(window, images, LVSIL_SMALL);
+    std::vector<BYTE> image(0x5b8000), object(0x50);
+    NT::image = image.data();
+    BYTE* game = image.data() + NT::GameRva;
+    memcpy(object.data() + 0x1c, &window, sizeof(window));
+    NT::originalInitResults = reinterpret_cast<NT::ResultsControl>(InitializeResultsFixture);
+    NT::originalRefreshResults = reinterpret_cast<NT::ResultsControl>(BuildResults);
+    SetTeam(game, 0, "Easy", 0, 2);
+    SetTeam(game, 1, "Human", 3, 2);
+    SetTeam(game, 2, "Medium", 1, 2);
+    SetTeam(game, 3, "Remote Human", -1, 1);
+    SetTeam(game, 4, "Hard", 2, 2);
+    SetTeam(game, 5, "Other Human", 4, 1);
+    for (int slot = 0; slot < 6; ++slot) game[NT::TeamOffset + slot * NT::TeamStride + 1] = static_cast<BYTE>(slot);
+    SetSkill(1, 50);
+    SetSkill(2, 100);
+    SetSkill(3, 0);
+    SetSkill(4, 0);
+    const auto checkRows = [&](int easy, int medium, int hard)
+    {
+        Check(ListView_GetItemCount(window) == 6 && ListView_GetImageList(window, LVSIL_SMALL) == images &&
+            ImageList_GetImageCount(images) == 5, "results reuse all native sprites without extra images");
+        for (int row = 0; row < 6; ++row)
+        {
+            LVITEMA item{};
+            item.mask = LVIF_IMAGE | LVIF_PARAM | LVIF_STATE;
+            item.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
+            item.iItem = row;
+            Check(SendMessageA(window, LVM_GETITEMA, 0, reinterpret_cast<LPARAM>(&item)), "read results icon and metadata");
+            const int slot = static_cast<int>(item.lParam);
+            const int expected = slot == 0 ? easy : slot == 2 ? medium : slot == 4 ? hard : 0;
+            Check(item.iImage == expected && slot == 5 - row &&
+                item.state == static_cast<UINT>(slot == 2 ? LVIS_SELECTED | LVIS_FOCUSED : 0), "results CPU icon preserves row identity and selection");
+            char score[8]{};
+            LVITEMA text{};
+            text.iSubItem = 1;
+            text.pszText = score;
+            text.cchTextMax = sizeof(score);
+            SendMessageA(window, LVM_GETITEMTEXTA, row, reinterpret_cast<LPARAM>(&text));
+            Check(std::atoi(score) == slot, "CPU icon update preserves victory totals");
+        }
+    };
+    for (int skill : { 1, 33, 34, 66, 67, 100 })
+    {
+        SetSkill(0, skill);
+        const auto before = std::vector<BYTE>(game, game + 0xcf0);
+        NT::InitializeResults(object.data(), 1);
+        checkRows(1 + (skill > 66 ? 2 : skill > 33 ? 1 : 0), 2, 3);
+        NT::RefreshComputerResults(object.data(), nullptr);
+        checkRows(1 + (skill > 66 ? 2 : skill > 33 ? 1 : 0), 2, 3);
+        Check(memcmp(game, before.data(), before.size()) == 0, "host results icons leave all game data untouched");
+    }
+    NT::receivedTeams = NT::HostComputerTeams(game);
+    SetSkill(0, 0);
+    SetSkill(1, 0);
+    SetSkill(2, 0);
+    SetSkill(3, 100); // A joining player's unrelated local team database.
+    const auto before = std::vector<BYTE>(game, game + 0xcf0);
+    for (int skill : { 1, 33, 34, 66, 67, 100 })
+    {
+        NT::receivedTeams[0].skill = static_cast<unsigned char>(skill);
+        NT::InitializeResults(object.data(), 2);
+        checkRows(1 + (skill > 66 ? 2 : skill > 33 ? 1 : 0), 2, 3);
+        NT::RefreshComputerResults(object.data(), nullptr);
+        checkRows(1 + (skill > 66 ? 2 : skill > 33 ? 1 : 0), 2, 3);
+    }
+    Check(memcmp(game, before.data(), before.size()) == 0, "client results use host skills and preserve game data");
+    NT::receivedTeams = {};
+    NT::RefreshComputerResults(object.data(), nullptr);
+    checkRows(0, 0, 0);
+    // Local games still use their native negative controller bytes.
+    game[NT::TeamOffset] = static_cast<BYTE>(-67);
+    NT::InitializeResults(object.data(), 0);
+    checkRows(3, 0, 0);
+    DWORD_PTR mode;
+    Check(!GetWindowSubclass(window, NT::ReleaseResultsContext, 2, &mode), "local results have no network context");
+    NT::InitializeResults(object.data(), 2);
+    DestroyWindow(window);
+    Check(!GetWindowSubclass(window, NT::ReleaseResultsContext, 2, &mode), "closing results releases network context");
+    ImageList_Destroy(images);
+    DeleteObject(bitmap);
+    FreeLibrary(resources);
+    puts("PASS: host/client results CPU sprites at every skill boundary, repeated refreshes, human icons, native images, victory totals, selection, local games and cleanup");
+}
+
 static void GameAndPacketTests()
 {
     std::vector<BYTE> image(0x5b8000);
@@ -415,6 +553,87 @@ static void GameAndPacketTests()
     puts("PASS: host/client AI controllers, exact difficulty, ownership restoration, reordered teams, both transports, host authority and malformed packets");
 }
 
+static BYTE* roundClient = nullptr;
+static uint32_t roundReceivedLength = 0;
+static void __fastcall ReceiveRound(void*, void*, uint32_t, const void* packet, uint32_t length)
+{
+    ++received;
+    roundReceivedLength = length;
+    uint32_t type;
+    memcpy(&type, packet, sizeof(type));
+    if (type == 14) NT::WriteNetworkGame(roundClient, "fixture.dat", false);
+}
+
+static void SubsequentRoundPacketTests()
+{
+    std::vector<BYTE> image(0x5b8000), client(0xcf0), results(0xac);
+    NT::image = SW::image = image.data();
+    NT::enabled = true;
+    NT::originalWriteGame = reinterpret_cast<NT::WriteGame>(Write);
+    NT::originalReceiveRoundPacket = reinterpret_cast<NT::ReceiveRoundPacket>(ReceiveRound);
+    SW::originalSendToAll = reinterpret_cast<SW::SendToAll>(Broadcast);
+    BYTE* game = image.data() + NT::GameRva;
+    SetTeam(game, 0, "Human", 0, 0);
+    SetTeam(game, 1, "CPU", 1, 0);
+    SetTeam(game, 2, "Remote Human", -1, 1);
+    SetSkill(0, 0);
+    memcpy(client.data(), game, client.size());
+    roundClient = client.data();
+    constexpr uint32_t host = 123;
+    memcpy(results.data() + 0xa8, &host, sizeof(host));
+    std::array<BYTE, NT::NativeStartPacketSize> start{ 14 };
+    for (int reliable : { 0, 1 })
+    {
+        memcpy(image.data() + 0x188b14, &reliable, sizeof(reliable));
+        for (int skill : { 1, 33, 66, 100 })
+        {
+            SetSkill(1, skill);
+            const auto hostLobby = std::vector<BYTE>(game, game + 0xcf0);
+            NT::WriteNetworkGame(game, "fixture.dat", true);
+            const auto hostData = serialized;
+            SW::SendWeaponPacketToAll(nullptr, nullptr, 9, start.data(), start.size());
+            Check(sent.size() == NT::StartPacket{}.size(), "subsequent round sends current host CPU settings");
+            NT::receivedTeams = {};
+            const uint32_t length = static_cast<uint32_t>(sent.size()) + reliable * 4;
+            NT::ReceiveNextRoundPacket(results.data(), nullptr, host, sent.data(), length);
+            Check(serialized == hostData && roundReceivedLength == length,
+                "next-round dispatcher receives CPU settings before native serialization on both transports");
+            Check(memcmp(game, hostLobby.data(), hostLobby.size()) == 0 && client[NT::TeamOffset + NT::TeamStride] == 0,
+                "repeated round launches preserve host and client lobby owners");
+            NT::ReceiveNextRoundPacket(results.data(), nullptr, host + 1, start.data(), start.size() + reliable * 4);
+            Check(NT::receivedTeams[1].skill == skill, "non-host next-round packet cannot replace CPU settings");
+        }
+        NT::ReceiveNextRoundPacket(results.data(), nullptr, host, start.data(), start.size() + reliable * 4);
+        Check(serialized[0x468 + NT::TeamStride] == 0, "native next-round start clears stale CPU settings");
+        std::array<BYTE, 8> unrelated{ 8 };
+        NT::receivedTeams[1].skill = 67;
+        NT::ReceiveNextRoundPacket(results.data(), nullptr, host, unrelated.data(), unrelated.size() + reliable * 4);
+        Check(NT::receivedTeams[1].skill == 67 && roundReceivedLength == unrelated.size() + reliable * 4,
+            "unrelated results-dialog packets retain their native length and CPU metadata");
+
+        SYSTEM_INFO info{};
+        GetSystemInfo(&info);
+        BYTE* guard = static_cast<BYTE*>(VirtualAlloc(nullptr, info.dwPageSize * 2, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        DWORD protect;
+        Check(guard && VirtualProtect(guard + info.dwPageSize, info.dwPageSize, PAGE_NOACCESS, &protect), "guard next-round receive boundary");
+        for (size_t size : { size_t(4), size_t(19), size_t(20), size_t(131), size_t(132) })
+        {
+            BYTE* packet = guard + info.dwPageSize - size;
+            memcpy(packet, sent.data(), size);
+            if (size == 132) packet[20] = 'X';
+            NT::receivedTeams[1].skill = 99;
+            const int before = received;
+            NT::ReceiveNextRoundPacket(results.data(), nullptr, host, packet, static_cast<uint32_t>(size) + reliable * 4);
+            Check(received == before + (size >= 20 ? 1 : 0) && NT::receivedTeams[1].skill == 0,
+                "truncated or invalid next-round starts clear stale metadata without reading past the payload");
+        }
+        VirtualFree(guard, 0, MEM_RELEASE);
+    }
+    roundClient = nullptr;
+    NT::enabled = false;
+    puts("PASS: repeated CPU round starts, exact host/client difficulty, results-dialog receive ordering, both transports, stale settings and guarded packets");
+}
+
 static void LaunchCallSiteTests(BYTE* frontend)
 {
     BYTE* game = frontend + NT::GameRva;
@@ -454,6 +673,25 @@ static void LaunchCallSiteTests(BYTE* frontend)
     launch(0x35941);
     Check(static_cast<signed char>(serialized[0x468]) == -67 && game[NT::TeamOffset] == 2,
         "real host launch return address converts AI and restores owner");
+    for (int skill : { 1, 50, 100 })
+    {
+        SetSkill(1, skill);
+        game[0xc6d] = 2; // Native victories-required setting.
+        game[NT::TeamOffset + 1] = 1; // A team has already won one round.
+        SetTeam(game, 1, "Human Caller", -1, 1);
+        launch(0x61b04);
+        Check(static_cast<signed char>(serialized[0x468]) == -skill && serialized[0x468 + NT::TeamStride] == 1 &&
+            serialized[0xc6d - 0x1c] == 2 && serialized[0x469] == 1 && game[NT::TeamOffset] == 2,
+            "real host next-round caller retains CPU difficulty, humans, wins and lobby ownership");
+        NT::receivedTeams = {};
+        strcpy_s(NT::receivedTeams[0].name, "Native Caller");
+        NT::receivedTeams[0].skill = static_cast<unsigned char>(skill);
+        launch(0x6405b);
+        Check(static_cast<signed char>(serialized[0x468]) == -skill && serialized[0x468 + NT::TeamStride] == 1 &&
+            serialized[0xc6d - 0x1c] == 2 && serialized[0x469] == 1 && game[NT::TeamOffset] == 2,
+            "real client next-round caller retains CPU difficulty, humans, wins and lobby ownership");
+    }
+    SetSkill(1, 67);
     NT::receivedTeams = {};
     strcpy_s(NT::receivedTeams[0].name, "Native Caller");
     NT::receivedTeams[0].skill = 67;
@@ -462,7 +700,55 @@ static void LaunchCallSiteTests(BYTE* frontend)
         "real client launch return address converts AI and restores owner");
     NT::SaveGame(game, nullptr, "fixture.dat");
     Check(serialized[0x468] == 2, "non-network writer caller retains native controller");
-    puts("PASS: supplied host/client launch instructions execute the production detour with their native return addresses");
+    puts("PASS: real first-round and subsequent host/client launch callers preserve CPU controllers, humans, wins and ownership");
+}
+
+static DWORD_PTR resultsMode = 0;
+static void __fastcall CaptureResultsMode(void* object, void*)
+{
+    resultsMode = 0;
+    GetWindowSubclass(*reinterpret_cast<HWND*>(static_cast<BYTE*>(object) + 0x1c), NT::ReleaseResultsContext, 2, &resultsMode);
+}
+static void ResultsCallerTests(BYTE* frontend)
+{
+    HWND window = CreateWindowExA(0, WC_LISTVIEWA, "Results caller fixture", WS_POPUP | LVS_REPORT,
+        0, 0, 240, 150, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    Check(window != nullptr, "create results native caller fixture");
+    std::array<BYTE, 0x20> object{};
+    memcpy(object.data() + 0x1c, &window, sizeof(window));
+    NT::originalInitResults = reinterpret_cast<NT::ResultsControl>(CaptureResultsMode);
+    const auto initialize = [&](size_t caller, DWORD_PTR expected)
+    {
+        BYTE* code = frontend + caller - 11;
+        std::array<BYTE, 12> before;
+        memcpy(before.data(), code, before.size());
+        Check(code[0] == 0x81 && code[1] == 0xc1 && code[6] == 0xe8, "native results initialization call structure");
+        DWORD previous, ignored;
+        Check(VirtualProtect(code, before.size(), PAGE_EXECUTE_READWRITE, &previous), "prepare results caller fixture");
+        // Replace add ecx,controlOffset with nop / mov ecx,fixtureObject while
+        // preserving the call's real return address in the supplied frontend.
+        code[0] = 0x90;
+        code[1] = 0xb9;
+        BYTE* fixture = object.data();
+        memcpy(code + 2, &fixture, sizeof(fixture));
+        const auto displacement = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(NT::InitComputerResults) -
+            reinterpret_cast<uintptr_t>(code + 11));
+        memcpy(code + 7, &displacement, sizeof(displacement));
+        code[11] = 0xc3;
+        FlushInstructionCache(GetCurrentProcess(), code, before.size());
+        reinterpret_cast<void (__cdecl*)()>(code)();
+        memcpy(code, before.data(), before.size());
+        VirtualProtect(code, before.size(), previous, &ignored);
+        FlushInstructionCache(GetCurrentProcess(), code, before.size());
+        Check(resultsMode == expected, "native host/client/local results caller selects the correct CPU metadata source");
+    };
+    initialize(NT::HostResultsCallerRva, 1);
+    initialize(NT::JoinResultsCallerRva, 2);
+    initialize(0x77c91, 0);
+    initialize(NT::JoinResultsCallerRva, 2);
+    DestroyWindow(window);
+    Check(!GetWindowSubclass(window, NT::ReleaseResultsContext, 2, &resultsMode), "native results caller context cleaned up");
+    puts("PASS: supplied native host/client/local results callers select the intended CPU metadata source");
 }
 
 static void HookTests(const char* path)
@@ -478,16 +764,28 @@ static void HookTests(const char* path)
     memcpy(before.data(), frontend + NT::WriteGameRva, before.size());
     std::array<BYTE, 9> treeBefore;
     memcpy(treeBefore.data(), frontend + NT::AddTreeTeamRva, treeBefore.size());
+    std::array<BYTE, 10> roundBefore;
+    memcpy(roundBefore.data(), frontend + NT::ReceiveRoundPacketRva, roundBefore.size());
+    std::array<BYTE, 10> resultsInitBefore, resultsRefreshBefore;
+    memcpy(resultsInitBefore.data(), frontend + NT::InitResultsRva, resultsInitBefore.size());
+    memcpy(resultsRefreshBefore.data(), frontend + NT::RefreshResultsRva, resultsRefreshBefore.size());
     Check(SW::InstallInImage(frontend), "shared packet hooks install");
     Check(NT::InstallInImage(frontend), "AI hook and host-only filter install alongside secret weapons");
     Check(frontend[0x3264b] == 1 && frontend[0x399fc] == 0, "only hosting dialog shows computer teams");
     Check(memcmp(before.data(), frontend + NT::WriteGameRva, before.size()) != 0, "game writer hook enabled");
     Check(memcmp(treeBefore.data(), frontend + NT::AddTreeTeamRva, treeBefore.size()) != 0, "Teams row hook enabled");
+    Check(memcmp(roundBefore.data(), frontend + NT::ReceiveRoundPacketRva, roundBefore.size()) != 0, "subsequent-round receive hook enabled");
+    Check(memcmp(resultsInitBefore.data(), frontend + NT::InitResultsRva, resultsInitBefore.size()) != 0 &&
+        memcmp(resultsRefreshBefore.data(), frontend + NT::RefreshResultsRva, resultsRefreshBefore.size()) != 0, "results icon hooks enabled");
     LaunchCallSiteTests(frontend);
+    ResultsCallerTests(frontend);
     Check(NT::SetHostListMode(0), "restore test list mode");
     Check(MH_Uninitialize() == MH_OK, "remove mapped image hooks");
     Check(memcmp(before.data(), frontend + NT::WriteGameRva, before.size()) == 0, "game writer restored");
     Check(memcmp(treeBefore.data(), frontend + NT::AddTreeTeamRva, treeBefore.size()) == 0, "Teams row builder restored");
+    Check(memcmp(roundBefore.data(), frontend + NT::ReceiveRoundPacketRva, roundBefore.size()) == 0, "subsequent-round receiver restored");
+    Check(memcmp(resultsInitBefore.data(), frontend + NT::InitResultsRva, resultsInitBefore.size()) == 0 &&
+        memcmp(resultsRefreshBefore.data(), frontend + NT::RefreshResultsRva, resultsRefreshBefore.size()) == 0, "results icon hooks restored");
     Check(NT::SetHostListMode(1), "alter signature fixture");
     Check(!NT::InstallInImage(frontend), "modified frontend signature rejected before installation");
     Check(memcmp(before.data(), frontend + NT::WriteGameRva, before.size()) == 0, "rejection leaves writer unchanged");
@@ -503,9 +801,11 @@ int main(int argc, char** argv)
     try
     {
         GameAndPacketTests();
+        SubsequentRoundPacketTests();
         if (argc > 1)
         {
             TeamIconTests(argv[1]);
+            ResultsIconTests(argv[1]);
             HookTests(argv[1]);
         }
         return 0;

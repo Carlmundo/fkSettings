@@ -22,6 +22,15 @@ namespace
     constexpr size_t HostListModeRva = 0x3264a;
     constexpr size_t WriteGameRva = 0x26e38;
     constexpr size_t AddTreeTeamRva = 0x4b233;
+    constexpr size_t ReceiveRoundPacketRva = 0x63ac6;
+    constexpr size_t HostLaunchCallerRva = 0x35950;
+    constexpr size_t JoinLaunchCallerRva = 0x3b3d5;
+    constexpr size_t HostNextRoundCallerRva = 0x61b13;
+    constexpr size_t JoinNextRoundCallerRva = 0x6406a;
+    constexpr size_t InitResultsRva = 0x881d6;
+    constexpr size_t RefreshResultsRva = 0x88336;
+    constexpr size_t HostResultsCallerRva = 0x61240;
+    constexpr size_t JoinResultsCallerRva = 0x6351e;
     constexpr uint32_t StartType = 14;
     struct ComputerTeam
     {
@@ -44,6 +53,11 @@ namespace
     WriteGame originalWriteGame = nullptr;
     using AddTreeTeam = void (__thiscall*)(void*, const BYTE*, int);
     AddTreeTeam originalAddTreeTeam = nullptr;
+    using ReceiveRoundPacket = void (__thiscall*)(void*, uint32_t, const void*, uint32_t);
+    ReceiveRoundPacket originalReceiveRoundPacket = nullptr;
+    using ResultsControl = void (__thiscall*)(void*);
+    ResultsControl originalInitResults = nullptr;
+    ResultsControl originalRefreshResults = nullptr;
 
     struct TeamImages
     {
@@ -230,6 +244,67 @@ namespace
         return true;
     }
 
+    LRESULT CALLBACK ReleaseResultsContext(HWND window, UINT message, WPARAM wParam, LPARAM lParam,
+        UINT_PTR id, DWORD_PTR)
+    {
+        if (message == WM_NCDESTROY) RemoveWindowSubclass(window, ReleaseResultsContext, id);
+        return DefSubclassProc(window, message, wParam, lParam);
+    }
+
+    void __fastcall RefreshComputerResults(void* object, void*)
+    {
+        originalRefreshResults(object);
+        HWND window = *reinterpret_cast<HWND*>(static_cast<BYTE*>(object) + 0x1c);
+        DWORD_PTR mode = 0;
+        if (!GetWindowSubclass(window, ReleaseResultsContext, 2, &mode)) return;
+        const auto teams = mode == 1 ? HostComputerTeams(image + GameRva) : receivedTeams;
+        const int count = ListView_GetItemCount(window);
+        for (int row = 0; row < count; ++row)
+        {
+            LVITEMA item{};
+            item.mask = LVIF_PARAM;
+            item.iItem = row;
+            if (!SendMessageA(window, LVM_GETITEMA, 0, reinterpret_cast<LPARAM>(&item)) ||
+                item.lParam < 0 || item.lParam >= 6) continue;
+            const char* name = reinterpret_cast<char*>(image + GameRva + TeamOffset + item.lParam * TeamStride + 2);
+            if (!name[0] || !memchr(name, 0, 17)) continue;
+            char rowName[18]{};
+            LVITEMA text{};
+            text.pszText = rowName;
+            text.cchTextMax = sizeof(rowName);
+            SendMessageA(window, LVM_GETITEMTEXTA, row, reinterpret_cast<LPARAM>(&text));
+            if (strcmp(rowName, name) != 0) continue;
+            for (const auto& computer : teams)
+                if (computer.skill >= 1 && computer.skill <= 100 && strcmp(computer.name, name) == 0)
+                {
+                    // This list already contains bitmap 244's 32x16 sprites:
+                    // image 0 is human, and images 1/2/3 are the CPU levels.
+                    item.mask = LVIF_IMAGE;
+                    item.iImage = 1 + (computer.skill > 66 ? 2 : computer.skill > 33 ? 1 : 0);
+                    SendMessageA(window, LVM_SETITEMA, 0, reinterpret_cast<LPARAM>(&item));
+                    break;
+                }
+        }
+    }
+
+    void InitializeResults(void* object, DWORD_PTR mode)
+    {
+        HWND window = *reinterpret_cast<HWND*>(static_cast<BYTE*>(object) + 0x1c);
+        // Record the source on this control before native initialization calls
+        // its refresh method. Later timer refreshes use the same context.
+        if (mode) SetWindowSubclass(window, ReleaseResultsContext, 2, mode);
+        else RemoveWindowSubclass(window, ReleaseResultsContext, 2);
+        originalInitResults(object);
+    }
+
+    void __fastcall InitComputerResults(void* object, void*)
+    {
+        const auto caller = static_cast<BYTE*>(_ReturnAddress());
+        const DWORD_PTR mode = caller == image + HostResultsCallerRva ? 1 :
+            caller == image + JoinResultsCallerRva ? 2 : 0;
+        InitializeResults(object, mode);
+    }
+
     int WriteNetworkGame(BYTE* game, const char* filename, bool host)
     {
         const auto teams = host ? HostComputerTeams(game) : receivedTeams;
@@ -263,9 +338,25 @@ namespace
     int __fastcall SaveGame(void* object, void*, const char* filename)
     {
         const auto caller = static_cast<BYTE*>(_ReturnAddress());
-        if (object == image + GameRva && (caller == image + 0x35950 || caller == image + 0x3b3d5))
-            return WriteNetworkGame(static_cast<BYTE*>(object), filename, caller == image + 0x35950);
+        const bool host = caller == image + HostLaunchCallerRva || caller == image + HostNextRoundCallerRva;
+        const bool join = caller == image + JoinLaunchCallerRva || caller == image + JoinNextRoundCallerRva;
+        if (object == image + GameRva && (host || join))
+            return WriteNetworkGame(static_cast<BYTE*>(object), filename, host);
         return originalWriteGame(object, filename);
+    }
+
+    void __fastcall ReceiveNextRoundPacket(void* object, void*, uint32_t sender,
+        const void* packet, uint32_t length)
+    {
+        // Subsequent rounds use the results dialog's separate dispatcher. Its
+        // constructor resolves the host player ID into +0xa8. Refresh the AI
+        // settings before the native start handler writes the next game.dat.
+        const bool reliable = *reinterpret_cast<uint32_t*>(image + 0x188b14) == 1;
+        const uint32_t payloadLength = reliable ? (length >= 4 ? length - 4 : 0) : length;
+        const uint32_t host = *reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0xa8);
+        ReceiveStartPacket(sender, host, packet, payloadLength);
+        if (IsStartPacket(packet, payloadLength) && payloadLength < NativeStartPacketSize) return;
+        originalReceiveRoundPacket(object, sender, packet, length);
     }
 
     bool SetHostListMode(BYTE mode)
@@ -287,13 +378,21 @@ namespace
         auto nt = reinterpret_cast<IMAGE_NT_HEADERS*>(frontend + dos->e_lfanew);
         if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.Machine != IMAGE_FILE_MACHINE_I386 ||
             nt->FileHeader.TimeDateStamp != 0x3587be19 || nt->OptionalHeader.SizeOfImage != 0x5b8000) return false;
-        // Validate both network launch callers too. Local games keep their
+        // Validate first-round and subsequent network launch callers. Local games keep their
         // native controller handling and joiners keep the human-only team list.
         if (memcmp(frontend + HostListModeRva, "\x6a\x00\x8b\x4d\xb4\x81\xc1\xe8\x1c\x00\x00\xe8\x2c\x13\xfd\xff", 16) ||
             memcmp(frontend + WriteGameRva, "\x55\x8b\xec\x6a\xff\x68\x1b\x91\x4e\x00", 10) ||
             memcmp(frontend + AddTreeTeamRva, "\x55\x8b\xec\x83\xec\x0c\x89\x4d\xf4", 9) ||
+            memcmp(frontend + ReceiveRoundPacketRva, "\x55\x8b\xec\x6a\xff\x68\x17\xcf\x4e\x00", 10) ||
+            memcmp(frontend + InitResultsRva, "\x55\x8b\xec\x6a\xff\x68\xfb\x02\x4f\x00", 10) ||
+            memcmp(frontend + RefreshResultsRva, "\x55\x8b\xec\x6a\xff\x68\x0e\x03\x4f\x00", 10) ||
+            memcmp(frontend + 0x6123b, "\xe8\xec\x1c\xfa\xff", 5) ||
+            memcmp(frontend + 0x63519, "\xe8\x0e\xfa\xf9\xff", 5) ||
             memcmp(frontend + 0x3594b, "\xe8\x53\xd2\xfc\xff", 5) ||
-            memcmp(frontend + 0x3b3d0, "\xe8\xce\x77\xfc\xff", 5)) return false;
+            memcmp(frontend + 0x3b3d0, "\xe8\xce\x77\xfc\xff", 5) ||
+            memcmp(frontend + 0x61b0e, "\xe8\x90\x10\xfa\xff", 5) ||
+            memcmp(frontend + 0x64065, "\xe8\x39\xeb\xf9\xff", 5) ||
+            memcmp(frontend + 0x6319d, "\x68\xd2\x77\x5a\x00\xb9\x98\x76\x5a\x00\xe8\xbc\x02\xfa\xff\x8b\x4d\xf0\x89\x81\xa8\x00\x00\x00", 24)) return false;
         image = frontend;
         const struct Hook
         {
@@ -303,6 +402,9 @@ namespace
         } hooks[] = {
             { WriteGameRva, reinterpret_cast<void*>(SaveGame), reinterpret_cast<void**>(&originalWriteGame) },
             { AddTreeTeamRva, reinterpret_cast<void*>(AddComputerTeamRow), reinterpret_cast<void**>(&originalAddTreeTeam) },
+            { ReceiveRoundPacketRva, reinterpret_cast<void*>(ReceiveNextRoundPacket), reinterpret_cast<void**>(&originalReceiveRoundPacket) },
+            { InitResultsRva, reinterpret_cast<void*>(InitComputerResults), reinterpret_cast<void**>(&originalInitResults) },
+            { RefreshResultsRva, reinterpret_cast<void*>(RefreshComputerResults), reinterpret_cast<void**>(&originalRefreshResults) },
         };
         size_t created = 0;
         for (const auto& hook : hooks)
