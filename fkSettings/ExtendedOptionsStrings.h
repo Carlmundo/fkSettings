@@ -182,8 +182,7 @@ namespace ExtendedOptions
             strings.strExtendedFusesHerds = L"Extended Fuses/Herds";
             strings.hintExtendedFusesHerds = L"Enables the use of numeric keys 1-9 instead of just 1-5 to set timed weapon fuses and animal herd sizes.";
             strings.strUtilitiesDontEndTurn = L"Utilities don't end turn";
-            strings.hintUtilitiesDontEndTurn = L"Use these weapons without ending your turn:\n\n" + OptionResourceString(resourceModule, 4934) + L", " +
-                OptionResourceString(resourceModule, 4923) + L", " + OptionResourceString(resourceModule, 4922) + L", " + OptionResourceString(resourceModule, 4926) + L".";
+            strings.hintUtilitiesDontEndTurn = L"Use these weapons without ending your turn:\n\nBlow Torch, Drill, Girder, Teleport.";
             strings.strWeaponsDontEndTurn = L"Weapons don't end turn";
             strings.hintWeaponsDontEndTurn = L"\nAllows ALL weapons to be used multiple times in a single turn.";
             strings.strLossOfControlDoesntEndTurn = L"Loss of control doesn't end turn";
