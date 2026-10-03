@@ -88,32 +88,56 @@ namespace ExtendedOptions
 
         switch (languageIndex)
         {
-        case 0: // cs
-            strings.strExtendedOptions = L"";
-            strings.strGodMode = L"";
-            strings.strHighJump = L"";
-            strings.strSheepHeaven = L"";
-            strings.strSuperShopperCrates = L"";
-            strings.strExtendedFusesHerds = L"";
-            strings.strUtilitiesDontEndTurn = L"";
-            strings.strWeaponsDontEndTurn = L"";
-            strings.strLossOfControlDoesntEndTurn = L"";
-            strings.strWormSelectAfterMovement = L"";
-            strings.strLowGravity = L"";
-            strings.strPersistentRope = L"";
-            strings.strRapidPlay = L"";
+        case 0: // cs - Credit: JPEXS
+            strings.strExtendedOptions = L"Rozšířená nastavení";
+            strings.strGodMode = L"Nesmrtelnost";
+            strings.hintGodMode = L"\nČervi jsou nesmrtelní, kromě utopení ve vodě.";
+            strings.strHighJump = L"Vysoké skoky";
+            strings.hintHighJump = L"\nSkákání výše.";
+            strings.strSheepHeaven = L"Ovčí nebe";
+            strings.hintSheepHeaven = L"\nBedny obsahují ovčí zbraně a doba letu super ovce je prodloužena.";
+            strings.strSuperShopperCrates = L"Bedny pro super zákazníka";
+            strings.hintSuperShopperCrates = L"\nBedny obsahují tajné zbraně.";
+            strings.strExtendedFusesHerds = L"Rozšířená zápalná šňůra / stádo";
+            strings.hintExtendedFusesHerds = L"Povolí použití číselných kláves 1-9 místo jen 1-5 pro nastavení zápalné šňůry časovaných zbraní a velikosti stáda zvířat.";
+            strings.strUtilitiesDontEndTurn = L"Nástroje neukončí tah";
+            strings.hintUtilitiesDontEndTurn = L"Následující zbraně můžeš použít bez ukončení tahu:\n\nautogen, sbíječka, trám, teleport.";
+            strings.strWeaponsDontEndTurn = L"Zbraně neukončí tah";
+            strings.hintWeaponsDontEndTurn = L"\nPovolí u VŠECH zbraní použití vícekrát během jednoho tahu.";
+            strings.strLossOfControlDoesntEndTurn = L"Ztráta kontroly neukončí tah";
+            strings.hintLossOfControlDoesntEndTurn = L"Události, které způsobují ztrátu kontroly, budou mít stále ten efekt, ale kontrola může být časem převzata zpět bez ukončení aktuálního tahu.";
+            strings.strWormSelectAfterMovement = L"Výběr červa po pohybu";
+            strings.hintWormSelectAfterMovement = L"\nMůžeš přepínat na jiné červy po pohybu.";
+            strings.strLowGravity = L"Nízká gravitace";
+            strings.hintLowGravity = L"\nSníží gravitaci.";
+            strings.strPersistentRope = L"Trvalé lano";
+            strings.hintPersistentRope = L"Po ukončení svého tahu červi, kteří jsou na ninja laně, zůstanou k němu přivázaní a ti, kteří jsou na bungee lanu, také.";
+            strings.strRapidPlay = L"Rychlá hra";
+            strings.hintRapidPlay = L"\nOdstraní mnoho průtahů a přestávek pro zrychlení hry.";
             strings.strIndestructibleTerrain = L"Nezničitelný terén";
-            strings.strInvisibleTerrain = L"";
-            strings.strFastCrates = L"";
-            strings.strCrateSpy = L"";
-            strings.strCrateLimit = L"";
-            strings.strCrateRate = L"";
-            strings.strSuicideBomber = L"";
-            strings.strAquaSheep = L"";
-            strings.strInstantMines = L"";
-            strings.strHerd = L"";
-            strings.strDisableBackflip = L"";
-            strings.strDisableUnlockedAim = L"";
+            strings.hintIndestructibleTerrain = L"Aktivuje nezničitelný terén.\n\nPoznámka: Pečlivě zvaž, na jaké mapě tento cheat použiješ!";
+            strings.strInvisibleTerrain = L"Neviditelný terén";
+            strings.hintInvisibleTerrain = L"\nPopředí již nebude viditelné.";
+            strings.strFastCrates = L"Rychlé bedny";
+            strings.hintFastCrates = L"\nBedny padají z nebe mnohem rychleji.";
+            strings.strCrateSpy = L"Špión beden";
+            strings.hintCrateSpy = L"\nJde vidět, co je v bednách.";
+            strings.strCrateLimit = L"Limit beden";
+            strings.hintCrateLimit = L"\nHra nevytvoří další bedny, pokud by to překročilo tento limit.";
+            strings.strCrateRate = L"Výskyt beden";
+            strings.hintCrateRate = L"Určuje, kolik beden smí být potenciálně vytvořeno současně na začátku tahu. S pravděpodobností výsadku nastavenou na 100 % způsobí přesně toto určené množství.";
+            strings.strSuicideBomber = L"Sebevražedný atentátník";
+            strings.hintSuicideBomber = L"\nZ kamikaze se stane sebevražedný atentátník.";
+            strings.strAquaSheep = L"Vodní ovce";
+            strings.hintAquaSheep = L"Vylepší každou tvou super ovci na VODNÍ OVCI, která umí plavat stejně dobře jako létat.";
+            strings.strInstantMines = L"Instantní miny";
+            strings.hintInstantMines = L"\nVšechny miny budou vybuchovat okamžitě, i ty položené hráčem.";
+            strings.strHerd = L"Stádo zbraní";
+            strings.hintHerd = L"\nSpustí více stejných zbraní.";
+            strings.strDisableBackflip = L"Zakázat salto vzad";
+            strings.hintDisableBackflip = L"\nSalta vzad nejsou povolená.";
+            strings.strDisableUnlockedAim = L"Zakázat odemčené míření";
+            strings.hintDisableUnlockedAim = L"Nemůžeš už dále měnit míření během střelby nebo při používání autogenu.";
             break;
 
         case 1: // de
