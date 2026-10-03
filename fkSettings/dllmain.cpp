@@ -747,8 +747,7 @@ void AssignLabels()
     }
     else if (lang == "cs")
     {
-        // Unicode escapes keep Czech accents independent of the compiler source code page.
-        advancedOptionsLabel = _TEXT("Pokro\u010Dil\u00E1 nastaven\u00ED");
+        advancedOptionsLabel = _TEXT("Pokročilá nastavení");
     }
     else if (lang == "zh-Hans")
     {

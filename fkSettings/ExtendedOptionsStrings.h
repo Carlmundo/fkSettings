@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <Windows.h>
 #include <cstddef>
 #include <string>
@@ -89,55 +89,55 @@ namespace ExtendedOptions
         switch (languageIndex)
         {
         case 0: // cs - Credit: JPEXS
-            strings.strExtendedOptions = L"Roz\u0161\u00ED\u0159en\u00E1 nastaven\u00ED";
+            strings.strExtendedOptions = L"Rozšířená nastavení";
             strings.strGodMode = L"Nesmrtelnost";
-            strings.hintGodMode = L"\n\u010Cervi jsou nesmrteln\u00ED, krom\u011B utopen\u00ED ve vod\u011B.";
-            strings.strHighJump = L"Vysok\u00E9 skoky";
-            strings.hintHighJump = L"\nSk\u00E1k\u00E1n\u00ED v\u00FD\u0161e.";
-            strings.strSheepHeaven = L"Ov\u010D\u00ED nebe";
-            strings.hintSheepHeaven = L"\nBedny obsahuj\u00ED ov\u010D\u00ED zbran\u011B a doba letu super ovce je prodlou\u017Eena.";
-            strings.strSuperShopperCrates = L"Bedny pro super z\u00E1kazn\u00EDka";
-            strings.hintSuperShopperCrates = L"\nBedny obsahuj\u00ED tajn\u00E9 zbran\u011B.";
-            strings.strExtendedFusesHerds = L"Roz\u0161\u00ED\u0159en\u00E1 z\u00E1paln\u00E1 \u0161\u0148\u016Fra / st\u00E1do";
-            strings.hintExtendedFusesHerds = L"Povol\u00ED pou\u017Eit\u00ED \u010D\u00EDseln\u00FDch kl\u00E1ves 1-9 m\u00EDsto jen 1-5 pro nastaven\u00ED z\u00E1paln\u00E9 \u0161\u0148\u016Fry \u010Dasovan\u00FDch zbran\u00ED a velikosti st\u00E1da zv\u00ED\u0159at.";
-            strings.strUtilitiesDontEndTurn = L"N\u00E1stroje neukon\u010D\u00ED tah";
-            strings.hintUtilitiesDontEndTurn = L"N\u00E1sleduj\u00EDc\u00ED zbran\u011B m\u016F\u017Ee\u0161 pou\u017E\u00EDt bez ukon\u010Den\u00ED tahu:\n\nautogen, sb\u00EDje\u010Dka, tr\u00E1m, teleport.";
-            strings.strWeaponsDontEndTurn = L"Zbran\u011B neukon\u010D\u00ED tah";
-            strings.hintWeaponsDontEndTurn = L"\nPovol\u00ED u V\u0160ECH zbran\u00ED pou\u017Eit\u00ED v\u00EDcekr\u00E1t b\u011Bhem jednoho tahu.";
-            strings.strLossOfControlDoesntEndTurn = L"Ztr\u00E1ta kontroly neukon\u010D\u00ED tah";
-            strings.hintLossOfControlDoesntEndTurn = L"Ud\u00E1losti, kter\u00E9 zp\u016Fsobuj\u00ED ztr\u00E1tu kontroly, budou m\u00EDt st\u00E1le ten efekt, ale kontrola m\u016F\u017Ee b\u00FDt \u010Dasem p\u0159evzata zp\u011Bt bez ukon\u010Den\u00ED aktu\u00E1ln\u00EDho tahu.";
-            strings.strWormSelectAfterMovement = L"V\u00FDb\u011Br \u010Derva po pohybu";
-            strings.hintWormSelectAfterMovement = L"\nM\u016F\u017Ee\u0161 p\u0159ep\u00EDnat na jin\u00E9 \u010Dervy po pohybu.";
-            strings.strLowGravity = L"N\u00EDzk\u00E1 gravitace";
-            strings.hintLowGravity = L"\nSn\u00ED\u017E\u00ED gravitaci.";
-            strings.strPersistentRope = L"Trval\u00E9 lano";
-            strings.hintPersistentRope = L"Po ukon\u010Den\u00ED sv\u00E9ho tahu \u010Dervi, kte\u0159\u00ED jsou na ninja lan\u011B, z\u016Fstanou k n\u011Bmu p\u0159iv\u00E1zan\u00ED a ti, kte\u0159\u00ED jsou na bungee lanu, tak\u00E9.";
-            strings.strRapidPlay = L"Rychl\u00E1 hra";
-            strings.hintRapidPlay = L"\nOdstran\u00ED mnoho pr\u016Ftah\u016F a p\u0159est\u00E1vek pro zrychlen\u00ED hry.";
-            strings.strIndestructibleTerrain = L"Nezni\u010Diteln\u00FD ter\u00E9n";
-            strings.hintIndestructibleTerrain = L"Aktivuje nezni\u010Diteln\u00FD ter\u00E9n.\n\nPozn\u00E1mka: Pe\u010Dliv\u011B zva\u017E, na jak\u00E9 map\u011B tento cheat pou\u017Eije\u0161!";
-            strings.strInvisibleTerrain = L"Neviditeln\u00FD ter\u00E9n";
-            strings.hintInvisibleTerrain = L"\nPop\u0159ed\u00ED ji\u017E nebude viditeln\u00E9.";
-            strings.strFastCrates = L"Rychl\u00E9 bedny";
-            strings.hintFastCrates = L"\nBedny padaj\u00ED z nebe mnohem rychleji.";
-            strings.strCrateSpy = L"\u0160pi\u00F3n beden";
-            strings.hintCrateSpy = L"\nJde vid\u011Bt, co je v bedn\u00E1ch.";
+            strings.hintGodMode = L"\nČervi jsou nesmrtelní, kromě utopení ve vodě.";
+            strings.strHighJump = L"Vysoké skoky";
+            strings.hintHighJump = L"\nSkákání výše.";
+            strings.strSheepHeaven = L"Ovčí nebe";
+            strings.hintSheepHeaven = L"\nBedny obsahují ovčí zbraně a doba letu super ovce je prodloužena.";
+            strings.strSuperShopperCrates = L"Bedny pro super zákazníka";
+            strings.hintSuperShopperCrates = L"\nBedny obsahují tajné zbraně.";
+            strings.strExtendedFusesHerds = L"Rozšířená zápalná šňůra / stádo";
+            strings.hintExtendedFusesHerds = L"Povolí použití číselných kláves 1-9 místo jen 1-5 pro nastavení zápalné šňůry časovaných zbraní a velikosti stáda zvířat.";
+            strings.strUtilitiesDontEndTurn = L"Nástroje neukončí tah";
+            strings.hintUtilitiesDontEndTurn = L"Následující zbraně můžeš použít bez ukončení tahu:\n\nautogen, sbíječka, trám, teleport.";
+            strings.strWeaponsDontEndTurn = L"Zbraně neukončí tah";
+            strings.hintWeaponsDontEndTurn = L"\nPovolí u VŠECH zbraní použití vícekrát během jednoho tahu.";
+            strings.strLossOfControlDoesntEndTurn = L"Ztráta kontroly neukončí tah";
+            strings.hintLossOfControlDoesntEndTurn = L"Události, které způsobují ztrátu kontroly, budou mít stále ten efekt, ale kontrola může být časem převzata zpět bez ukončení aktuálního tahu.";
+            strings.strWormSelectAfterMovement = L"Výběr červa po pohybu";
+            strings.hintWormSelectAfterMovement = L"\nMůžeš přepínat na jiné červy po pohybu.";
+            strings.strLowGravity = L"Nízká gravitace";
+            strings.hintLowGravity = L"\nSníží gravitaci.";
+            strings.strPersistentRope = L"Trvalé lano";
+            strings.hintPersistentRope = L"Po ukončení svého tahu červi, kteří jsou na ninja laně, zůstanou k němu přivázaní a ti, kteří jsou na bungee lanu, také.";
+            strings.strRapidPlay = L"Rychlá hra";
+            strings.hintRapidPlay = L"\nOdstraní mnoho průtahů a přestávek pro zrychlení hry.";
+            strings.strIndestructibleTerrain = L"Nezničitelný terén";
+            strings.hintIndestructibleTerrain = L"Aktivuje nezničitelný terén.\n\nPoznámka: Pečlivě zvaž, na jaké mapě tento cheat použiješ!";
+            strings.strInvisibleTerrain = L"Neviditelný terén";
+            strings.hintInvisibleTerrain = L"\nPopředí již nebude viditelné.";
+            strings.strFastCrates = L"Rychlé bedny";
+            strings.hintFastCrates = L"\nBedny padají z nebe mnohem rychleji.";
+            strings.strCrateSpy = L"Špión beden";
+            strings.hintCrateSpy = L"\nJde vidět, co je v bednách.";
             strings.strCrateLimit = L"Limit beden";
-            strings.hintCrateLimit = L"\nHra nevytvo\u0159\u00ED dal\u0161\u00ED bedny, pokud by to p\u0159ekro\u010Dilo tento limit.";
-            strings.strCrateRate = L"V\u00FDskyt beden";
-            strings.hintCrateRate = L"Ur\u010Duje, kolik beden sm\u00ED b\u00FDt potenci\u00E1ln\u011B vytvo\u0159eno sou\u010Dasn\u011B na za\u010D\u00E1tku tahu. S pravd\u011Bpodobnost\u00ED v\u00FDsadku nastavenou na 100 % zp\u016Fsob\u00ED p\u0159esn\u011B toto ur\u010Den\u00E9 mno\u017Estv\u00ED.";
-            strings.strSuicideBomber = L"Sebevra\u017Eedn\u00FD atent\u00E1tn\u00EDk";
-            strings.hintSuicideBomber = L"\nZ kamikaze se stane sebevra\u017Eedn\u00FD atent\u00E1tn\u00EDk.";
-            strings.strAquaSheep = L"Vodn\u00ED ovce";
-            strings.hintAquaSheep = L"Vylep\u0161\u00ED ka\u017Edou tvou super ovci na VODN\u00CD OVCI, kter\u00E1 um\u00ED plavat stejn\u011B dob\u0159e jako l\u00E9tat.";
-            strings.strInstantMines = L"Instantn\u00ED miny";
-            strings.hintInstantMines = L"\nV\u0161echny miny budou vybuchovat okam\u017Eit\u011B, i ty polo\u017Een\u00E9 hr\u00E1\u010Dem.";
-            strings.strHerd = L"St\u00E1do zbran\u00ED";
-            strings.hintHerd = L"\nSpust\u00ED v\u00EDce stejn\u00FDch zbran\u00ED.";
-            strings.strDisableBackflip = L"Zak\u00E1zat salto vzad";
-            strings.hintDisableBackflip = L"\nSalta vzad nejsou povolen\u00E1.";
-            strings.strDisableUnlockedAim = L"Zak\u00E1zat odem\u010Den\u00E9 m\u00ED\u0159en\u00ED";
-            strings.hintDisableUnlockedAim = L"Nem\u016F\u017Ee\u0161 u\u017E d\u00E1le m\u011Bnit m\u00ED\u0159en\u00ED b\u011Bhem st\u0159elby nebo p\u0159i pou\u017E\u00EDv\u00E1n\u00ED autogenu.";
+            strings.hintCrateLimit = L"\nHra nevytvoří další bedny, pokud by to překročilo tento limit.";
+            strings.strCrateRate = L"Výskyt beden";
+            strings.hintCrateRate = L"Určuje, kolik beden smí být potenciálně vytvořeno současně na začátku tahu. S pravděpodobností výsadku nastavenou na 100 % způsobí přesně toto určené množství.";
+            strings.strSuicideBomber = L"Sebevražedný atentátník";
+            strings.hintSuicideBomber = L"\nZ kamikaze se stane sebevražedný atentátník.";
+            strings.strAquaSheep = L"Vodní ovce";
+            strings.hintAquaSheep = L"Vylepší každou tvou super ovci na VODNÍ OVCI, která umí plavat stejně dobře jako létat.";
+            strings.strInstantMines = L"Instantní miny";
+            strings.hintInstantMines = L"\nVšechny miny budou vybuchovat okamžitě, i ty položené hráčem.";
+            strings.strHerd = L"Stádo zbraní";
+            strings.hintHerd = L"\nSpustí více stejných zbraní.";
+            strings.strDisableBackflip = L"Zakázat salto vzad";
+            strings.hintDisableBackflip = L"\nSalta vzad nejsou povolená.";
+            strings.strDisableUnlockedAim = L"Zakázat odemčené míření";
+            strings.hintDisableUnlockedAim = L"Nemůžeš už dále měnit míření během střelby nebo při používání autogenu.";
             break;
 
         case 1: // de
@@ -551,7 +551,7 @@ namespace ExtendedOptions
             strings.strHighJump = L"Высокий прыжок";
             strings.strSheepHeaven = L"Овечий рай";
             strings.strSuperShopperCrates = L"Ящики с секретным оружием";
-            strings.strExtendedFusesHerds = L"расширенные задержки гранат и стада животных";
+            strings.strExtendedFusesHerds = L"Расш. задержки и стада";
             strings.strUtilitiesDontEndTurn = L"Инструменты не завершают ход";
             strings.strWeaponsDontEndTurn = L"Выстрелы не прекращают ход";
             strings.strLossOfControlDoesntEndTurn = L"Потеря контроля не прекращает ход";
@@ -570,7 +570,7 @@ namespace ExtendedOptions
             strings.strInstantMines = L"Мгновенные мины";
             strings.strHerd = L"Стадо";
             strings.strDisableBackflip = L"Отключить сальто назад";
-            strings.strDisableUnlockedAim = L"Отключить свободное прицеливание при стрельбе";
+            strings.strDisableUnlockedAim = L"Отключить фиксацию прицела";
             break;
 
         case 13: // sv
