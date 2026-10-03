@@ -252,7 +252,16 @@ localized endpoint labels, scheme reload/Default refresh, nested forward
 and reverse Windows tab traversal,
 scroll sizing and destruction. Private executable mappings validate coexistence
 with the shared hooks, signature rejection and installation/removal of all
-twelve new detours. Tests do not modify the supplied executable or installed DLL.
+fifteen detours. Repeat swings (slider 2218/readout 2219) extends the native
+Random formatting branch: -1 loads string 4950 using the original CString and
+skin renderer, while other values retain numeric formatting. Its specific save
+call reads the slider position instead of parsing the localized caption, keeping
+-1 in the native payload. The native formatter and save detours are exercised
+against the supplied executable in a private mapping, with CString dependencies
+stubbed and the original skin dispatch driving real dialog controls. Tests cover
+-1 through 100, the unchanged Random label, nearby numeric labels, balanced
+string lifetimes and signature rejection for each new hook.
+Tests do not modify the supplied executable or installed DLL.
 
 Live frontend navigation, high-DPI layouts, game-engine feature activation and
 a complete multiplayer match are not yet verified. Manual checks are listed

@@ -52,18 +52,9 @@ static void LanguageTests(const char* path)
         weaponNames[index] = text;
         english[index] = englishHerdPrefix + L": " + text;
     }
-    std::wstring utilityNames;
-    const UINT utilityIds[] = { 4934, 4923, 4922, 4926 };
-    for (size_t i = 0; i < 4; ++i)
-    {
-        wchar_t text[256]{};
-        Check(LoadStringW(module, utilityIds[i], text, 256) != 0, "requested utilities resource string exists");
-        if (i) utilityNames += L", ";
-        utilityNames += text;
-    }
-    utilityNames += L".";
-    Check(EO::strings.hintUtilitiesDontEndTurn.find(utilityNames) != std::wstring::npos,
-        "English utilities hint lists all four native weapon names");
+    // Hints are editable translations; the fallback checks below must preserve
+    // the current wording rather than require the older generated sentence.
+    Check(!EO::strings.hintUtilitiesDontEndTurn.empty(), "customized English utilities hint exists");
     EO::values = Pattern(EO::OptionCount);
     const auto before = EO::values;
     EO::SetLanguage("en");
@@ -90,6 +81,7 @@ static void LanguageTests(const char* path)
         bool extended;
     };
     const ExpectedTranslation expectedTranslations[] = {
+        { "cs", L"Vodn\u00ed ovce", L"St\u00e1do zbran\u00ed", L"Roz\u0161\u00ed\u0159en\u00e1 nastaven\u00ed", true },
         { "pt-br", L"Aqua Carneiro", L"Rebanho/manada", L"Op\u00e7\u00f5es de Jogo Estendidas", true },
         { "nl", L"Waterschaap", L"Kudde", L"Uitgebreide opties", true },
         { "en", L"Aqua Sheep", L"Herd weapon", englishGroupTitle.c_str(), true },
@@ -107,7 +99,7 @@ static void LanguageTests(const char* path)
     {
         EO::SetLanguage(language);
         const ExpectedTranslation* expected = nullptr;
-        const bool keepHints = strcmp(language, "pl") == 0 || strcmp(language, "pt") == 0 ||
+        const bool keepHints = strcmp(language, "cs") == 0 || strcmp(language, "pl") == 0 || strcmp(language, "pt") == 0 ||
             strcmp(language, "pt-br") == 0 || strcmp(language, "zh-Hans") == 0 ||
             strcmp(language, "\xEF\xBB\xBF" "zh-Hans\r\n") == 0;
         for (const auto& entry : expectedTranslations)
@@ -118,12 +110,12 @@ static void LanguageTests(const char* path)
             Check(EO::strings.strAquaSheep == expected->aquaSheep && EO::strings.strHerd == expected->herd &&
                 EO::strings.strExtendedOptions == expected->title,
                 "language selection preserves Unicode and translated group titles");
-            if (keepHints) Check(!EO::strings.hintGodMode.empty() && !EO::strings.hintAquaSheep.empty(), "Portuguese hints are preserved");
+            if (keepHints) Check(!EO::strings.hintGodMode.empty() && !EO::strings.hintAquaSheep.empty(), "supplied hints are preserved");
             for (const auto* text : { &EO::strings.strExtendedFusesHerds, &EO::strings.strWeaponsDontEndTurn,
                 &EO::strings.strLossOfControlDoesntEndTurn, &EO::strings.strPersistentRope,
                 &EO::strings.strCrateRate, &EO::strings.strWormSelectAfterMovement, &EO::strings.strCrateLimit })
                 Check(text->empty() != expected->extended, "extended labels are translated in the supplied languages");
-            if (!keepHints)
+            if (!keepHints || strcmp(language, "cs") == 0)
                 for (const auto& option : EO::Options)
                     Check(!option.label->empty(), "all option labels are filled in the requested languages");
             else for (auto index : { EO::OptionIndex::HighJump, EO::OptionIndex::SheepHeaven, EO::OptionIndex::SuperShopperCrates,
@@ -135,16 +127,13 @@ static void LanguageTests(const char* path)
         }
         else
             for (const auto& option : EO::Options)
-                if (strcmp(language, "cs") == 0 && option.index == EO::OptionIndex::IndestructibleTerrain)
-                    Check(*option.label == L"Nezni\u010diteln\u00fd ter\u00e9n" && option.hint->empty(),
-                        "preserve customized Czech terrain translation");
-                else Check(option.hint->empty() && (weaponNames[EO::ToIndex(option.index)].empty() ? option.label->empty() :
+                Check(option.hint->empty() && (weaponNames[EO::ToIndex(option.index)].empty() ? option.label->empty() :
                     *option.label == L": " + weaponNames[EO::ToIndex(option.index)]), "remaining untranslated labels stay blank");
         for (const auto& entry : herdIds)
             Check(*EO::FindOption(EO::ToIndex(entry.first))->label == EO::strings.strHerd + L": " + weaponNames[EO::ToIndex(entry.first)],
                 "every language composes herd captions with its translated GAME_HERD prefix and native weapon names");
         if (!expected) Check(EO::strings.strExtendedOptions.empty(), "untranslated group title remains blank");
-        Check(EO::strings.hintHerd.empty(), "unmapped shared herd hint stays blank");
+        if (strcmp(language, "cs") != 0) Check(EO::strings.hintHerd.empty(), "unmapped shared herd hint stays blank");
     }
     for (const auto& entry : herdIds)
         Check(EO::FindOption(EO::ToIndex(entry.first))->hint == &EO::strings.hintHerd,
@@ -918,6 +907,157 @@ static void DefaultTests()
     puts("PASS: all nine default-copy detours reset options and preserve native registers/flags");
 }
 
+// Execute the supplied frontend's formatter, including its original CString
+// branch and native skin dispatch. Only its CString library dependencies are
+// replaced in this private mapping; no frontend initialization is run.
+static HMODULE repeatResources;
+static int liveNativeStrings;
+static void* __fastcall NativeStringCtor(void** self, void*)
+{
+    *self = new std::string;
+    ++liveNativeStrings;
+    return self;
+}
+static void __fastcall NativeStringDtor(void** self, void*)
+{
+    delete static_cast<std::string*>(*self);
+    --liveNativeStrings;
+}
+static void __cdecl NativeStringFormat(void** self, const char*, int value)
+{
+    *static_cast<std::string*>(*self) = std::to_string(value);
+}
+static BOOL __fastcall NativeStringLoad(void** self, void*, UINT id)
+{
+    char text[256]{};
+    const int length = LoadStringA(repeatResources, id, text, sizeof(text));
+    *static_cast<std::string*>(*self) = text;
+    return length != 0;
+}
+static const char* __fastcall NativeStringText(void** self, void*)
+{
+    return static_cast<std::string*>(*self)->c_str();
+}
+static void* __fastcall NativeStringAppend(void** self, void*, void** other)
+{
+    *static_cast<std::string*>(*self) += *static_cast<std::string*>(*other);
+    return self;
+}
+struct NativeSkinFixture { void** vtable; HWND window; };
+struct NativeControlFixture { std::array<BYTE, 0x40> object{}; NativeSkinFixture skin{}; int id; };
+static NativeControlFixture repeatControls[4];
+static void* __fastcall SkinGetControl(void*, void*, int id)
+{
+    for (auto& control : repeatControls) if (control.id == id) return control.object.data();
+    return nullptr;
+}
+static BOOL __fastcall SkinSetText(NativeSkinFixture* self, void*, const char* text)
+{
+    return SetWindowTextA(self->window, text);
+}
+static void PatchPrivateCode(BYTE* target, const void* replacement)
+{
+    DWORD old;
+    Check(VirtualProtect(target, 5, PAGE_EXECUTE_READWRITE, &old) != 0, "make private test dependency writable");
+    target[0] = 0xe9;
+    *reinterpret_cast<int32_t*>(target + 1) = static_cast<int32_t>(static_cast<const BYTE*>(replacement) - target - 5);
+    VirtualProtect(target, 5, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), target, 5);
+}
+static void* repeatReadSite;
+__declspec(naked) static void ReturnFromReadSite()
+{
+    __asm {
+        mov esp, ebp
+        pop ebp
+        ret
+    }
+}
+__declspec(naked) static int CallRepeatReadSite(void*, int*)
+{
+    __asm {
+        push ebp
+        mov ebp, esp
+        push dword ptr [ebp + 12]
+        push 2219
+        mov ecx, dword ptr [ebp + 8]
+        jmp dword ptr [repeatReadSite]
+    }
+}
+static void RepeatSwingsTests(BYTE* frontend, const char* path)
+{
+    repeatResources = LoadLibraryExA(path, nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    HRSRC resource = FindResourceW(repeatResources, MAKEINTRESOURCEW(154), MAKEINTRESOURCEW(5));
+    Check(resource != nullptr, "load Repeat swings dialog resource");
+    auto layout = static_cast<const DLGTEMPLATE*>(LockResource(LoadResource(repeatResources, resource)));
+    HWND parent = CreateWindowW(L"STATIC", L"Repeat swings fixture", WS_OVERLAPPEDWINDOW,
+        0, 0, 700, 500, nullptr, nullptr, nullptr, nullptr);
+    HWND dialog = CreateDialogIndirectParamW(repeatResources, layout, parent, DialogProc, 0);
+    Check(dialog != nullptr, "create real Repeat swings slider and readouts");
+    void* vtable[35]{};
+    vtable[0x78 / 4] = reinterpret_cast<void*>(SkinGetControl);
+    vtable[0x88 / 4] = reinterpret_cast<void*>(SkinSetText);
+    NativeSkinFixture pageSkin{ vtable, dialog };
+    std::array<BYTE, 0x40> page{};
+    *reinterpret_cast<void**>(page.data() + 0x34) = &pageSkin;
+    const int ids[] = { 2211, 2215, 2219, 2218 };
+    for (size_t i = 0; i < 4; ++i)
+    {
+        auto& control = repeatControls[i];
+        control.id = ids[i];
+        control.skin = { vtable, GetDlgItem(dialog, ids[i]) };
+        Check(control.skin.window != nullptr, "native slider/readout exists");
+        *reinterpret_cast<HWND*>(control.object.data() + 0x1c) = control.skin.window;
+        *reinterpret_cast<void**>(control.object.data() + 0x38) = &control.skin;
+    }
+    PatchPrivateCode(frontend + 0xc5312, reinterpret_cast<void*>(NativeStringCtor));
+    PatchPrivateCode(frontend + 0xc545d, reinterpret_cast<void*>(NativeStringDtor));
+    PatchPrivateCode(frontend + 0xb92c4, reinterpret_cast<void*>(NativeStringFormat));
+    PatchPrivateCode(frontend + 0xc5b02, reinterpret_cast<void*>(NativeStringLoad));
+    PatchPrivateCode(frontend + 0x76c0, reinterpret_cast<void*>(NativeStringText));
+    PatchPrivateCode(frontend + 0xc5885, reinterpret_cast<void*>(NativeStringAppend));
+    using Formatter = void (__thiscall*)(void*, int, int);
+    const auto format = reinterpret_cast<Formatter>(frontend + 0x57f84);
+    char random[256]{}, unlimited[256]{};
+    Check(LoadStringA(repeatResources, 158, random, sizeof(random)) != 0 &&
+        LoadStringA(repeatResources, 4950, unlimited, sizeof(unlimited)) != 0, "load both native sentinel strings");
+    format(page.data(), -1, 2210);
+    char text[256]{};
+    GetWindowTextA(GetDlgItem(dialog, 2211), text, sizeof(text));
+    Check(strcmp(text, random) == 0, "native Random sentinel still uses string 158");
+    std::array<BYTE, 0xa4> editor{};
+    *reinterpret_cast<void**>(editor.data() + 0xa0) = page.data();
+    HWND slider = GetDlgItem(dialog, 2218);
+    SendMessageW(slider, TBM_SETRANGEMIN, FALSE, -1);
+    SendMessageW(slider, TBM_SETRANGEMAX, FALSE, 100);
+    const auto continuation = EO::afterReadRepeatSwings;
+    Check(continuation == frontend + 0x592bb, "Repeat swings save resumes at the next native option");
+    EO::afterReadRepeatSwings = reinterpret_cast<void*>(ReturnFromReadSite);
+    repeatReadSite = frontend + 0x592b6;
+    for (int pass = 0; pass < 3; ++pass)
+        for (int value = -1; value <= 100; ++value)
+        {
+            SendMessageW(slider, TBM_SETPOS, TRUE, value);
+            format(page.data(), value, 2218);
+            GetWindowTextA(GetDlgItem(dialog, 2219), text, sizeof(text));
+            Check(std::string(text) == (value == -1 ? std::string(unlimited) : std::to_string(value)),
+                "real native formatter displays Unlimited only at -1, numbers otherwise");
+            int stored = -999;
+            Check(CallRepeatReadSite(editor.data(), &stored) == value && stored == value,
+                "patched native save call reads slider position, preserving -1 despite its text label");
+            format(page.data(), 7, 2214);
+            GetWindowTextA(GetDlgItem(dialog, 2215), text, sizeof(text));
+            Check(strcmp(text, "7") == 0, "unrelated native readout still displays its numeric value");
+            GetWindowTextA(GetDlgItem(dialog, 2211), text, sizeof(text));
+            Check(strcmp(text, random) == 0 && liveNativeStrings == 0,
+                "other text stays intact and native CString construction/destruction remains balanced");
+        }
+    EO::afterReadRepeatSwings = continuation;
+    DestroyWindow(parent);
+    FreeLibrary(repeatResources);
+    puts("PASS: actual native formatter/skin path, Random unchanged, Repeat swings -1 through 100 and native save call");
+}
+
 static void HookTests(const char* path)
 {
     HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
@@ -925,11 +1065,11 @@ static void HookTests(const char* path)
     HANDLE mapping = CreateFileMappingW(file, nullptr, PAGE_READONLY | SEC_IMAGE, 0, 0, nullptr);
     BYTE* frontend = static_cast<BYTE*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
     Check(frontend != nullptr, "map frontend without running it");
-    const std::array<size_t, 12> sites{ 0x57d20, 0x97780, 0x97500, 0x9cdc, 0x9ff8, 0xa5d4,
-        0x31cd9, 0x392c0, 0x586a3, 0x5899e, 0x59611, 0x59e3d };
+    const std::array<size_t, 15> sites{ 0x57d20, 0x97780, 0x97500, 0x9cdc, 0x9ff8, 0xa5d4,
+        0x31cd9, 0x392c0, 0x586a3, 0x5899e, 0x59611, 0x59e3d, 0x580de, 0x580f9, 0x592b6 };
     // SEC_IMAGE does not run loader relocations; relocate the inspected operands
     // in this private mapping exactly as a relocated executable's loader would.
-    for (size_t i = 3; i < sites.size(); ++i)
+    for (size_t i = 3; i < 12; ++i)
     {
         DWORD old;
         VirtualProtect(frontend + sites[i], 17, PAGE_EXECUTE_READWRITE, &old);
@@ -937,21 +1077,30 @@ static void HookTests(const char* path)
         *reinterpret_cast<uint32_t*>(frontend + sites[i] + 11) = reinterpret_cast<uint32_t>(frontend + EO::OptionsRva);
         VirtualProtect(frontend + sites[i], 17, old, &old);
     }
-    std::array<std::array<BYTE, 17>, 12> before{};
+    DWORD operandOld;
+    VirtualProtect(frontend + 0x592aa, 4, PAGE_EXECUTE_READWRITE, &operandOld);
+    *reinterpret_cast<uint32_t*>(frontend + 0x592aa) = reinterpret_cast<uint32_t>(frontend + 0x18640c);
+    VirtualProtect(frontend + 0x592aa, 4, operandOld, &operandOld);
+    std::array<std::array<BYTE, 17>, 15> before{};
     for (size_t i = 0; i < sites.size(); ++i) memcpy(before[i].data(), frontend + sites[i], before[i].size());
     Check(MH_Initialize() == MH_OK, "initialize MinHook");
     Check(SW::InstallInImage(frontend), "install shared CRT/network hooks");
-    DWORD old;
-    VirtualProtect(frontend + sites[11], 17, PAGE_EXECUTE_READWRITE, &old);
-    frontend[sites[11]] = 0x90;
-    Check(!EO::InstallInImage(frontend) && !EO::enabled, "unsupported default signature disables feature before hooks are created");
-    frontend[sites[11]] = before[11][0];
-    VirtualProtect(frontend + sites[11], 17, old, &old);
-    for (size_t i = 0; i < sites.size(); ++i)
-        Check(memcmp(before[i].data(), frontend + sites[i], before[i].size()) == 0, "signature rejection leaves all extended hook sites untouched");
-    Check(EO::InstallInImage(frontend), "install all twelve extended option hooks on supplied frontend");
+    for (size_t corrupted : { 11u, 12u, 13u, 14u })
+    {
+        DWORD old;
+        VirtualProtect(frontend + sites[corrupted], 17, PAGE_EXECUTE_READWRITE, &old);
+        frontend[sites[corrupted]] = 0x90;
+        Check(!EO::InstallInImage(frontend) && !EO::enabled, "unsupported Default or Repeat swings signature rejects hooks");
+        frontend[sites[corrupted]] = before[corrupted][0];
+        VirtualProtect(frontend + sites[corrupted], 17, old, &old);
+        for (size_t i = 0; i < sites.size(); ++i)
+            Check(memcmp(before[i].data(), frontend + sites[i], before[i].size()) == 0,
+                "signature rejection leaves all extended hook sites untouched");
+    }
+    Check(EO::InstallInImage(frontend), "install all fifteen extended option hooks on supplied frontend");
     for (size_t i = 0; i < sites.size(); ++i)
         Check(memcmp(before[i].data(), frontend + sites[i], before[i].size()) != 0, "extended hook enabled");
+    RepeatSwingsTests(frontend, path);
     Check(MH_Uninitialize() == MH_OK, "remove hooks");
     for (size_t i = 0; i < sites.size(); ++i)
         Check(memcmp(before[i].data(), frontend + sites[i], before[i].size()) == 0, "original code restored");

@@ -125,6 +125,67 @@ namespace
     Close originalClose = nullptr;
     void* defaultTrampolines[9]{};
 
+    using GetNativeControl = void* (__thiscall*)(void*, int);
+    GetNativeControl getNativeControl = nullptr;
+    void* specialValuePath = nullptr;
+    void* numericValuePath = nullptr;
+    void* loadSpecialString = nullptr;
+    void* afterReadRepeatSwings = nullptr;
+
+    // Extend the native Random branch, retaining its CString lifetime and
+    // skin rendering. These detours run inside the formatter's existing frame.
+    __declspec(naked) void SpecialSliderValue()
+    {
+        __asm {
+            cmp dword ptr [ebp + 0ch], 2218
+            je checkValue
+            cmp dword ptr [ebp + 0ch], 2210
+            jne numeric
+        checkValue:
+            cmp dword ptr [ebp + 8], -1
+            jne numeric
+            jmp dword ptr [specialValuePath]
+        numeric:
+            jmp dword ptr [numericValuePath]
+        }
+    }
+
+    __declspec(naked) void SpecialSliderString()
+    {
+        __asm {
+            pushfd
+            cmp dword ptr [ebp + 0ch], 2218
+            jne random
+            popfd
+            push 4950
+            jmp dword ptr [loadSpecialString]
+        random:
+            popfd
+            push 158
+            jmp dword ptr [loadSpecialString]
+        }
+    }
+
+    int __fastcall ReadRepeatSwings(void* object, void*, int, int* destination)
+    {
+        void* page = *reinterpret_cast<void**>(static_cast<BYTE*>(object) + 0xa0);
+        void* slider = getNativeControl(page, 2218);
+        HWND window = *reinterpret_cast<HWND*>(static_cast<BYTE*>(slider) + 0x1c);
+        const int value = static_cast<int>(SendMessageA(window, TBM_GETPOS, 0, 0));
+        if (destination) *destination = value;
+        return value;
+    }
+
+    // Replace only this call site. Its original two stack arguments have
+    // already been pushed; the helper consumes them just like the native reader.
+    __declspec(naked) void SaveRepeatSwings()
+    {
+        __asm {
+            call ReadRepeatSwings
+            jmp dword ptr [afterReadRepeatSwings]
+        }
+    }
+
     struct LaunchStream { void* stream; std::string sidecar; };
     std::vector<LaunchStream> launchStreams;
     struct Editor
@@ -534,6 +595,9 @@ namespace
             { 0x57d20, "\x55\x8b\xec\x6a\xff\x68", 6, reinterpret_cast<void*>(CreateOptionsPage), reinterpret_cast<void**>(&originalCreatePage) },
             { 0x97780, "\x8b\x44\x24\x08\x8b\x4c\x24\x04", 8, reinterpret_cast<void*>(OpenFile), reinterpret_cast<void**>(&originalOpen) },
             { 0x97500, "\x56\x8b\x74\x24\x08\x57\x83\xcf\xff", 9, reinterpret_cast<void*>(CloseFile), reinterpret_cast<void**>(&originalClose) },
+            { 0x580de, "\x81\x7d\x0c\xa2\x08\x00\x00", 7, reinterpret_cast<void*>(SpecialSliderValue), nullptr },
+            { 0x580f9, "\x68\x9e\x00\x00\x00", 5, reinterpret_cast<void*>(SpecialSliderString), nullptr },
+            { 0x592b6, "\xe8\xde\x9d\xfa\xff", 5, reinterpret_cast<void*>(SaveRepeatSwings), nullptr },
         };
         const size_t defaultSites[] = { 0x9cdc, 0x9ff8, 0xa5d4, 0x31cd9, 0x392c0, 0x586a3, 0x5899e, 0x59611, 0x59e3d };
         void* detours[] = { Default0, Default1, Default2, Default3, Default4, Default5, Default6, Default7, Default8 };
@@ -548,6 +612,20 @@ namespace
             if (memcmp(image + rva, copy, sizeof(copy)) != 0) return false;
         if (memcmp(image + 0xcf5b5, "\xb8\x44\x1b", 3) != 0 ||
             memcmp(image + 0x57e6f, "\x55\x8b\xec\x83\xec\x08", 6) != 0) return false;
+        // Check the surrounding branch and the specific Repeat swings save
+        // arguments as well as the hook sites before changing any instructions.
+        BYTE repeatRead[] = { 0x68, 0, 0, 0, 0, 0x68, 0xab, 8, 0, 0, 0x8b, 0x4d, 0xf8 };
+        const uint32_t repeatValue = reinterpret_cast<uint32_t>(image + 0x18640c);
+        memcpy(repeatRead + 1, &repeatValue, 4);
+        if (memcmp(image + 0x592a9, repeatRead, sizeof(repeatRead)) != 0 ||
+            memcmp(image + 0x580e5, "\x75\x59\x83\x7d\x08\xff\x75\x53\x8d\x4d\xe4", 11) != 0 ||
+            memcmp(image + 0x580fe, "\x8d\x4d\xe4\xe8\xfc\xd9\x06\x00", 8) != 0 ||
+            memcmp(image + 0xc47a6, "\x8b\x41\x34\x85\xc0", 5) != 0) return false;
+        specialValuePath = image + 0x580ed;
+        numericValuePath = image + 0x58140;
+        loadSpecialString = image + 0x580fe;
+        afterReadRepeatSwings = image + 0x592bb;
+        getNativeControl = reinterpret_cast<GetNativeControl>(image + 0xc47a6);
         std::vector<void*> created;
         bool success = true;
         for (const auto& hook : hooks)
