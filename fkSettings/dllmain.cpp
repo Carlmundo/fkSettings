@@ -724,6 +724,10 @@ void AssignLabels()
     {
         advancedOptionsLabel = _TEXT("Options avancées");
     }
+    else if (lang == "is")
+    {
+        advancedOptionsLabel = _TEXT("Aukastillingar");
+    }
     else if (lang == "it") 
     {
         advancedOptionsLabel = _TEXT("Impostazioni avanzate");
