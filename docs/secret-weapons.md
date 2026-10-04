@@ -138,10 +138,11 @@ no separate secret-stock message or `.wep` format change in this update.
 
 ## Supported executable and hook locations
 
-This first implementation targets the supplied 32-bit frontend:
+This implementation targets the supplied 32-bit frontend and its translated
+resource variants:
 
 - PE timestamp: `0x3587BE19`
-- Image size: `0x5B8000`
+- English reference image size: `0x5B8000` (not required for installation)
 - SHA-256 of the inspected file:
   `F0D30BD56696049A8BA26EF03A85C7798DE62A3872AB6A8ACEABC68003279553`
 
@@ -164,8 +165,9 @@ Locations are relative to the executable's loaded image base:
 | `0x187648` | Native weapon records |
 | `0x1B4E6C` | Native weapon scheme dirty flag |
 
-Installation checks the PE architecture, timestamp, image size, and signatures
-at every hook site. Unsupported builds skip this feature and emit an
+Installation checks the PE architecture, timestamp, and signatures at every
+hook site. Image size may vary with translated resources. Unsupported builds
+skip this feature and emit an
 `OutputDebugString` diagnostic. Failed hook installation rolls back the hooks
 created for this feature.
 

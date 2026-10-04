@@ -589,7 +589,7 @@ namespace
         if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
         auto nt = reinterpret_cast<IMAGE_NT_HEADERS*>(image + dos->e_lfanew);
         if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.Machine != IMAGE_FILE_MACHINE_I386 ||
-            nt->FileHeader.TimeDateStamp != 0x3587be19 || nt->OptionalHeader.SizeOfImage != 0x5b8000) return false;
+            nt->FileHeader.TimeDateStamp != 0x3587be19) return false;
         struct Hook { size_t rva; const char* signature; size_t length; void* detour; void** original; };
         const Hook hooks[] = {
             { 0x57d20, "\x55\x8b\xec\x6a\xff\x68", 6, reinterpret_cast<void*>(CreateOptionsPage), reinterpret_cast<void**>(&originalCreatePage) },

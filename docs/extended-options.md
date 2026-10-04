@@ -159,8 +159,9 @@ to verify engine behavior and absence of desynchronization.
 ## Supported frontend and hooks
 
 The feature targets the same inspected 32-bit frontend as secret weapons:
-PE timestamp `0x3587BE19`, image size `0x5B8000`. Installation checks the PE
-identity and all hook signatures before modifying code, and rolls back hooks
+PE timestamp `0x3587BE19`. Translated resource variants may have different image
+sizes. Installation checks the PE architecture, timestamp, and all hook
+signatures before modifying code, and rolls back hooks
 if installation fails. It depends on the shared CRT/network hooks installed
 by `SecretWeapons`; it installs independently of the network computer-team
 feature.

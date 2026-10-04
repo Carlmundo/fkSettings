@@ -25,8 +25,9 @@ does not understand the AI settings and produces different game data.
 ## Implementation
 
 `fkSettings/NetworkTeams.cpp` supports the same x86 frontend as the secret weapon
-editor: PE timestamp `0x3587BE19`, image size `0x5B8000`. It checks the executable
-identity and every modified instruction before installing. The file on disk is
+editor: PE timestamp `0x3587BE19`. Translated resource variants may have different
+image sizes. It checks the executable architecture, timestamp, and every
+modified instruction before installing. The file on disk is
 never patched.
 
 The available-team list initializer takes a filter mode: 0 shows human teams,

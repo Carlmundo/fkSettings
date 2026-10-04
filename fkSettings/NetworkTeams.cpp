@@ -377,7 +377,7 @@ namespace
         if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 || dos->e_lfanew > 0x1000) return false;
         auto nt = reinterpret_cast<IMAGE_NT_HEADERS*>(frontend + dos->e_lfanew);
         if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.Machine != IMAGE_FILE_MACHINE_I386 ||
-            nt->FileHeader.TimeDateStamp != 0x3587be19 || nt->OptionalHeader.SizeOfImage != 0x5b8000) return false;
+            nt->FileHeader.TimeDateStamp != 0x3587be19) return false;
         // Validate first-round and subsequent network launch callers. Local games keep their
         // native controller handling and joiners keep the human-only team list.
         if (memcmp(frontend + HostListModeRva, "\x6a\x00\x8b\x4d\xb4\x81\xc1\xe8\x1c\x00\x00\xe8\x2c\x13\xfd\xff", 16) ||

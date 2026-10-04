@@ -609,7 +609,7 @@ bool InstallInImage(BYTE* frontendImage)
         return false;
     auto nt = reinterpret_cast<IMAGE_NT_HEADERS*>(image + dos->e_lfanew);
     if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.Machine != IMAGE_FILE_MACHINE_I386 ||
-        nt->FileHeader.TimeDateStamp != 0x3587be19 || nt->OptionalHeader.SizeOfImage != 0x5b8000)
+        nt->FileHeader.TimeDateStamp != 0x3587be19)
         return false;
 
     struct Hook
