@@ -1058,6 +1058,152 @@ static void RepeatSwingsTests(BYTE* frontend, const char* path)
     puts("PASS: actual native formatter/skin path, Random unchanged, Repeat swings -1 through 100 and native save call");
 }
 
+struct NativeFindData
+{
+    uint32_t attributes;
+    int32_t created, accessed, modified;
+    uint32_t size;
+    char name[260];
+};
+static_assert(offsetof(NativeFindData, size) == 16 && offsetof(NativeFindData, name) == 20,
+    "inspected frontend uses the 32-bit CRT find-data layout");
+static std::string schemeScanDirectory;
+static int schemeScanPasses;
+static void CopyFindData(NativeFindData* target, const WIN32_FIND_DATAA& source)
+{
+    *target = {};
+    target->attributes = source.dwFileAttributes;
+    target->size = source.nFileSizeLow;
+    strcpy_s(target->name, source.cFileName);
+}
+static intptr_t __cdecl NativeFindFirst(const char* pattern, NativeFindData* result)
+{
+    ++schemeScanPasses;
+    WIN32_FIND_DATAA found{};
+    const HANDLE handle = FindFirstFileA((schemeScanDirectory + "/" + pattern).c_str(), &found);
+    if (handle != INVALID_HANDLE_VALUE) CopyFindData(result, found);
+    return reinterpret_cast<intptr_t>(handle);
+}
+static int __cdecl NativeFindNext(intptr_t handle, NativeFindData* result)
+{
+    WIN32_FIND_DATAA found{};
+    if (!FindNextFileA(reinterpret_cast<HANDLE>(handle), &found)) return -1;
+    CopyFindData(result, found);
+    return 0;
+}
+static int __cdecl NativeFindClose(intptr_t handle) { return FindClose(reinterpret_cast<HANDLE>(handle)) ? 0 : -1; }
+static int __cdecl NativeScanChdir(const char*) { return 0; }
+static void __cdecl NativeSplitPath(const char* path, char*, char*, char* name, char*)
+{
+    _splitpath_s(path, nullptr, 0, nullptr, 0, name, 256, nullptr, 0);
+}
+static int __fastcall NativeAddScheme(void* list, void*, const char* name)
+{
+    HWND window = *reinterpret_cast<HWND*>(static_cast<BYTE*>(list) + 0x1c);
+    return static_cast<int>(SendMessageA(window, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name)));
+}
+static std::vector<std::string> SchemeNames(HWND list)
+{
+    std::vector<std::string> names;
+    for (int i = 0; i < SendMessageA(list, CB_GETCOUNT, 0, 0); ++i)
+    {
+        char name[256]{};
+        SendMessageA(list, CB_GETLBTEXT, i, reinterpret_cast<LPARAM>(name));
+        names.emplace_back(name);
+    }
+    return names;
+}
+static void SchemeDiscoveryTests(BYTE* frontend)
+{
+    // Exercise the actual native scanner and MinHook trampoline, backed by real
+    // filesystem enumeration and combo boxes. Stub only runtime dependencies
+    // that require the frontend's uninitialized CRT/global working directory.
+    const char* fixture = "Release/option-discovery-fixture";
+    CreateDirectoryA(fixture, nullptr);
+    char absolute[MAX_PATH]{};
+    Check(GetFullPathNameA(fixture, MAX_PATH, absolute, nullptr) != 0, "resolve scheme fixture path");
+    schemeScanDirectory = absolute;
+    const auto writeFixture = [](const char* name, size_t size, const EO::Extension* extension = nullptr)
+    {
+        auto stream = static_cast<FILE*>(Open((schemeScanDirectory + "/" + name).c_str(), "wb"));
+        Check(stream != nullptr, "create scheme discovery fixture");
+        std::vector<BYTE> bytes(size);
+        if (size >= 7) memcpy(bytes.data(), "OPTIONS", 7);
+        if (extension) memcpy(bytes.data() + 135, extension, sizeof(*extension));
+        Check(fwrite(bytes.data(), 1, size, stream) == size && fclose(stream) == 0, "write scheme discovery fixture");
+    };
+    EO::values.fill(0);
+    const auto zero = EO::CurrentExtension();
+    EO::values = Pattern(EO::OptionCount);
+    const auto populated = EO::CurrentExtension();
+    writeFixture("legacy.opt", 135);
+    writeFixture("all-zero.opt", 166, &zero);
+    writeFixture("populated.opt", 166, &populated);
+    writeFixture("truncated.opt", 165);
+    writeFixture("oversized.opt", 167);
+    writeFixture("future.opt", 366, &populated);
+    writeFixture("empty.opt", 0);
+    writeFixture("unrelated.wep", 135);
+    CreateDirectoryA((schemeScanDirectory + "/directory.opt").c_str(), nullptr);
+    PatchPrivateCode(frontend + 0x96200, reinterpret_cast<void*>(NativeFindFirst));
+    PatchPrivateCode(frontend + 0x96330, reinterpret_cast<void*>(NativeFindNext));
+    PatchPrivateCode(frontend + 0x96450, reinterpret_cast<void*>(NativeFindClose));
+    PatchPrivateCode(frontend + 0x97070, reinterpret_cast<void*>(NativeScanChdir));
+    PatchPrivateCode(frontend + 0x977a0, reinterpret_cast<void*>(NativeSplitPath));
+    PatchPrivateCode(frontend + 0xf270, reinterpret_cast<void*>(NativeAddScheme));
+    const auto scan = reinterpret_cast<EO::ScanSchemes>(frontend + 0x1e6fe);
+    HWND parent = CreateWindowW(L"STATIC", L"Scheme discovery fixture", WS_OVERLAPPEDWINDOW,
+        0, 0, 400, 300, nullptr, nullptr, nullptr, nullptr);
+    std::array<BYTE, 0x40> scanner{};
+    for (int dropdown = 0; dropdown < 2; ++dropdown)
+    {
+        HWND list = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWNLIST | CBS_SORT,
+            0, 0, 300, 200, parent, nullptr, nullptr, nullptr);
+        Check(list != nullptr, "create scheme dropdown");
+        std::array<BYTE, 0x40> object{};
+        *reinterpret_cast<HWND*>(object.data() + 0x1c) = list;
+        for (int restart = 0; restart < 3; ++restart)
+        {
+            SendMessageA(list, CB_RESETCONTENT, 0, 0);
+            schemeScanPasses = 0;
+            scan(scanner.data(), object.data(), restart == 1 ? "*.OPT" : "*.opt", 0, 135, "Options");
+            Check(schemeScanPasses == 1 && SchemeNames(list) == std::vector<std::string>{
+                "all-zero", "empty", "future", "legacy", "oversized", "populated", "truncated" },
+                "fresh dropdown scans include every .opt regardless of size, exclude other extensions and directories");
+        }
+        SendMessageA(list, CB_RESETCONTENT, 0, 0);
+        schemeScanPasses = 0;
+        scan(scanner.data(), object.data(), "*.wep", 0, 135, "Options");
+        Check(schemeScanPasses == 1 && SchemeNames(list) == std::vector<std::string>{ "unrelated" },
+            "other file types retain their original discovery rules");
+        SendMessageA(list, CB_RESETCONTENT, 0, 0);
+        schemeScanPasses = 0;
+        scan(scanner.data(), object.data(), "*.opt", 0, 166, "Options");
+        Check(schemeScanPasses == 1 && SchemeNames(list) == std::vector<std::string>{
+            "all-zero", "empty", "future", "legacy", "oversized", "populated", "truncated" },
+            "option discovery does not depend on a hardcoded current or future file size");
+        DestroyWindow(list);
+    }
+    for (const auto& entry : { std::make_pair("all-zero.opt", zero),
+        std::make_pair("populated.opt", populated), std::make_pair("future.opt", populated) })
+    {
+        auto stream = static_cast<FILE*>(Open((schemeScanDirectory + "/" + entry.first).c_str(), "rb"));
+        Check(stream != nullptr && fseek(stream, 135, SEEK_SET) == 0, "reopen discovered PLUS scheme");
+        EO::values = Pattern(0);
+        EO::ReadScheme(frontend + EO::OptionsRva, 128, 1, stream, 1, Read);
+        Check(EO::values == entry.second.values, "discovered schemes retain every extended setting on load");
+        fclose(stream);
+    }
+    DestroyWindow(parent);
+    for (const char* name : { "legacy.opt", "all-zero.opt", "populated.opt", "truncated.opt", "oversized.opt",
+        "future.opt", "empty.opt", "unrelated.wep" })
+        DeleteFileA((schemeScanDirectory + "/" + name).c_str());
+    RemoveDirectoryA((schemeScanDirectory + "/directory.opt").c_str());
+    RemoveDirectoryA(schemeScanDirectory.c_str());
+    Check(liveNativeStrings == 0, "native discovery CString lifetime remains balanced");
+    puts("PASS: actual native scheme scanner lists all .opt sizes in both fresh dropdowns, including over 200 bytes, and preserves extended values");
+}
+
 static void HookTests(const char* path)
 {
     HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
@@ -1065,8 +1211,8 @@ static void HookTests(const char* path)
     HANDLE mapping = CreateFileMappingW(file, nullptr, PAGE_READONLY | SEC_IMAGE, 0, 0, nullptr);
     BYTE* frontend = static_cast<BYTE*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
     Check(frontend != nullptr, "map frontend without running it");
-    const std::array<size_t, 15> sites{ 0x57d20, 0x97780, 0x97500, 0x9cdc, 0x9ff8, 0xa5d4,
-        0x31cd9, 0x392c0, 0x586a3, 0x5899e, 0x59611, 0x59e3d, 0x580de, 0x580f9, 0x592b6 };
+    const std::array<size_t, 16> sites{ 0x57d20, 0x97780, 0x97500, 0x9cdc, 0x9ff8, 0xa5d4,
+        0x31cd9, 0x392c0, 0x586a3, 0x5899e, 0x59611, 0x59e3d, 0x580de, 0x580f9, 0x592b6, 0x1e6fe };
     // SEC_IMAGE does not run loader relocations; relocate the inspected operands
     // in this private mapping exactly as a relocated executable's loader would.
     for (size_t i = 3; i < 12; ++i)
@@ -1081,26 +1227,27 @@ static void HookTests(const char* path)
     VirtualProtect(frontend + 0x592aa, 4, PAGE_EXECUTE_READWRITE, &operandOld);
     *reinterpret_cast<uint32_t*>(frontend + 0x592aa) = reinterpret_cast<uint32_t>(frontend + 0x18640c);
     VirtualProtect(frontend + 0x592aa, 4, operandOld, &operandOld);
-    std::array<std::array<BYTE, 17>, 15> before{};
+    std::array<std::array<BYTE, 17>, 16> before{};
     for (size_t i = 0; i < sites.size(); ++i) memcpy(before[i].data(), frontend + sites[i], before[i].size());
     Check(MH_Initialize() == MH_OK, "initialize MinHook");
     Check(SW::InstallInImage(frontend), "install shared CRT/network hooks");
-    for (size_t corrupted : { 11u, 12u, 13u, 14u })
+    for (size_t corrupted : { 11u, 12u, 13u, 14u, 15u })
     {
         DWORD old;
         VirtualProtect(frontend + sites[corrupted], 17, PAGE_EXECUTE_READWRITE, &old);
         frontend[sites[corrupted]] = 0x90;
-        Check(!EO::InstallInImage(frontend) && !EO::enabled, "unsupported Default or Repeat swings signature rejects hooks");
+        Check(!EO::InstallInImage(frontend) && !EO::enabled, "unsupported Default, Repeat swings or scheme scanner signature rejects hooks");
         frontend[sites[corrupted]] = before[corrupted][0];
         VirtualProtect(frontend + sites[corrupted], 17, old, &old);
         for (size_t i = 0; i < sites.size(); ++i)
             Check(memcmp(before[i].data(), frontend + sites[i], before[i].size()) == 0,
                 "signature rejection leaves all extended hook sites untouched");
     }
-    Check(EO::InstallInImage(frontend), "install all fifteen extended option hooks on supplied frontend");
+    Check(EO::InstallInImage(frontend), "install all sixteen extended option hooks on supplied frontend");
     for (size_t i = 0; i < sites.size(); ++i)
         Check(memcmp(before[i].data(), frontend + sites[i], before[i].size()) != 0, "extended hook enabled");
     RepeatSwingsTests(frontend, path);
+    SchemeDiscoveryTests(frontend);
     Check(MH_Uninitialize() == MH_OK, "remove hooks");
     for (size_t i = 0; i < sites.size(); ++i)
         Check(memcmp(before[i].data(), frontend + sites[i], before[i].size()) == 0, "original code restored");

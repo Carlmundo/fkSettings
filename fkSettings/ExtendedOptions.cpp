@@ -118,12 +118,26 @@ namespace
     using MarkEdited = void (__thiscall*)(void*);
     using Open = void* (__cdecl*)(const char*, const char*);
     using Close = int (__cdecl*)(void*);
+    using ScanSchemes = void (__thiscall*)(void*, void*, const char*, int, uint32_t, const char*);
     CreatePage originalCreatePage = nullptr;
     SetScrollSizes setScrollSizes = nullptr;
     MarkEdited markEdited = nullptr;
     Open originalOpen = nullptr;
     Close originalClose = nullptr;
+    ScanSchemes originalScanSchemes = nullptr;
     void* defaultTrampolines[9]{};
+
+    void __fastcall ScanOptionSchemes(void* object, void*, void* list, const char* pattern,
+        int directories, uint32_t requiredSize, const char* directory)
+    {
+        // A zero size disables the native scanner's exact-size filter. Keep
+        // the *.opt pattern and file-only mode, allowing future larger schemes
+        // in both dropdowns at startup and during list refreshes.
+        if ((directories & 0xff) == 0 &&
+            pattern && _stricmp(pattern, "*.opt") == 0)
+            requiredSize = 0;
+        originalScanSchemes(object, list, pattern, directories, requiredSize, directory);
+    }
 
     using GetNativeControl = void* (__thiscall*)(void*, int);
     GetNativeControl getNativeControl = nullptr;
@@ -598,6 +612,7 @@ namespace
             { 0x580de, "\x81\x7d\x0c\xa2\x08\x00\x00", 7, reinterpret_cast<void*>(SpecialSliderValue), nullptr },
             { 0x580f9, "\x68\x9e\x00\x00\x00", 5, reinterpret_cast<void*>(SpecialSliderString), nullptr },
             { 0x592b6, "\xe8\xde\x9d\xfa\xff", 5, reinterpret_cast<void*>(SaveRepeatSwings), nullptr },
+            { 0x1e6fe, "\x55\x8b\xec\x6a\xff\x68", 6, reinterpret_cast<void*>(ScanOptionSchemes), reinterpret_cast<void**>(&originalScanSchemes) },
         };
         const size_t defaultSites[] = { 0x9cdc, 0x9ff8, 0xa5d4, 0x31cd9, 0x392c0, 0x586a3, 0x5899e, 0x59611, 0x59e3d };
         void* detours[] = { Default0, Default1, Default2, Default3, Default4, Default5, Default6, Default7, Default8 };

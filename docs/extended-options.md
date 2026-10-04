@@ -106,6 +106,13 @@ the frontend's own CRT trampolines and opaque stream pointer, avoiding CRT
 saving through an unmodified frontend removes the appended settings.
 Compatibility with third-party scheme editors is unverified.
 
+Both option scheme dropdowns list all files matching `*.opt`, regardless of
+size, on startup and refresh. The shared native directory scanner normally
+filters option files to exactly 135 bytes; its option-file scans now use zero
+for the size argument to disable that filter. Other file types and directory
+scans retain their original rules. Discovery does not impose a 200-byte cap;
+loading still reads the native payload and validates the known PLUS extension.
+
 ## Why use extended.dat?
 
 Secret weapons already have reserved stock slots in the native `game.dat`
@@ -172,6 +179,7 @@ feature.
 | `0x57E6F` | Native option-edit handler (called, not hooked) |
 | `0xCF5B5` | Native scroll sizing (called, not hooked) |
 | `0x97780` / `0x97500` | Native CRT open/close hooks for launch stream tracking |
+| `0x1E6FE` | Native scheme discovery; remove the size filter for `*.opt` file scans |
 | `0x1863D8` | Native 128-byte option payload |
 | `0x186354` | Native option scheme name (`CString`) |
 | `0x9CDC`, `0x9FF8`, `0xA5D4`, `0x31CD9`, `0x392C0`, `0x586A3`, `0x5899E`, `0x59611`, `0x59E3D` | Native default option copies |
@@ -253,7 +261,11 @@ localized endpoint labels, scheme reload/Default refresh, nested forward
 and reverse Windows tab traversal,
 scroll sizing and destruction. Private executable mappings validate coexistence
 with the shared hooks, signature rejection and installation/removal of all
-fifteen detours. Repeat swings (slider 2218/readout 2219) extends the native
+sixteen detours. The actual directory scanner is exercised through its hook and
+trampoline with real files and combo boxes, covering fresh scans of both lists,
+case-insensitive `.opt` patterns, files larger than 200 bytes, other extensions,
+directory exclusion and subsequent loading of discovered extended schemes.
+Repeat swings (slider 2218/readout 2219) extends the native
 Random formatting branch: -1 loads string 4950 using the original CString and
 skin renderer, while other values retain numeric formatting. Its specific save
 call reads the slider position instead of parsing the localized caption, keeping

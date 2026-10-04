@@ -19,6 +19,8 @@ Test all of the following with a modern OS and Windows XP.
 
 # Extended Options (Dialog 154)
 
+- [ ] Scheme discovery: Save a PLUS `.opt`, close and restart the frontend, and confirm it appears in both the Game controls and Options editor dropdowns. Select it and confirm its native and extended values load. Repeat with a legacy `.opt` and an extended `.opt` larger than 200 bytes; confirm all remain listed after refreshing/reopening the dialogs. Other extensions and directories ending in `.opt` should be excluded.
+
 - [ ] Repeat swings: Set slider 2218 to -1 and confirm readout 2219 shows frontend string 4950 ("Unlimited"). Move to 0, 1 and 100 and confirm numeric values, then return to -1. Save/reload an `.opt`, switch schemes and reopen the editor; confirm Unlimited still represents -1. Check that the Random readout 2211 and other dialog/app text render normally, including after repeated slider changes and switching languages.
 
 - [ ] Fill a few `hint...` strings for testing, including `hintHerd`. Hover new checkboxes, slider titles, trackbars and readouts; confirm the existing hint box 1003 displays the correct text. All four herd controls should use the same `hintHerd`. Move between extended and native controls, move away, and close the editor; confirm hints switch and clear normally. Check multiline text and high DPI.
