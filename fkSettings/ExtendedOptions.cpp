@@ -100,7 +100,7 @@ namespace
     constexpr int FirstRowTop = 490;
     // Both columns have two half-row gaps, added after DLU-to-pixel conversion.
     constexpr int GroupBottom = FirstRowTop + 16 * RowHeight + SliderExtraHeight + 6;
-    constexpr int ExtraHeight = GroupBottom + 8 - 468;
+    constexpr int ExtraHeight = GroupBottom - 468;
     struct Extension
     {
         char magic[4];
