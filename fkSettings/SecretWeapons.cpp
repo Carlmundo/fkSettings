@@ -46,7 +46,7 @@ namespace
     // The native editor's cursor handler loads control ID + 500 as the hint.
     // Reuse the normal stock trackbar ID so it displays string 5501 too.
     constexpr int StockControlId = 5001;
-    constexpr uint32_t MaximumStock = 100;
+    constexpr uint32_t MaximumStock = 99;
     constexpr wchar_t ContextProperty[] = L"fkSettings.SecretWeapons";
     BYTE* image = nullptr;
     std::array<uint32_t, SecretWeaponCount> secretStocks{}; // 0..100; 10 is unlimited.
