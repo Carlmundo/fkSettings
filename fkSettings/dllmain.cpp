@@ -587,7 +587,7 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
                     strcpy_s(playButtonText, "Play");
                 }
 
-                const int buttonWidth = (int)round(50 * scale);
+                const int buttonWidth = (int)round(56 * scale);
                 int buttonX = comboRect.right + round(10 * scale);
                 int buttonY = comboRect.top;
                 int buttonHeight = comboRect.Height();
