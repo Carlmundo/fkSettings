@@ -16,35 +16,44 @@ static void LanguageTests()
     const std::array<const wchar_t*, 8> english{
         L"Salvation Army", L"MB Bomb", L"Sheep Strike", L"Carpet Bomb",
         L"Cloned Sheep", L"Concrete Donkey", L"Nuclear Bomb", L"Magic Bullet" };
-    for (const char* language : { "en", "zh-Hans", "", "unknown", "\xEF\xBB\xBF" "en\r\n" })
+    for (const char* language : { "en", "", "unknown", "\xEF\xBB\xBF" "en\r\n" })
     {
         SW::SetLanguage(language);
         for (size_t i = 0; i < english.size(); ++i)
-            Check(*SW::Weapons[i].name == english[i], "English, missing Chinese translation and fallback preserve names");
+            Check(*SW::Weapons[i].name == english[i], "English and fallback preserve names");
+    }
+    const std::array<const wchar_t*, 8> chinese{
+        L"\u6551\u4e16\u519b", L"MB\u70b8\u5f39", L"\u7ef5\u7f8a\u7a7a\u88ad", L"\u5730\u6bef\u5f0f\u8f70\u70b8",
+        L"\u514b\u9686\u7ef5\u7f8a", L"\u6df7\u51dd\u571f\u5927\u7b28\u9a74", L"\u6838\u5f39", L"\u9b54\u672f\u5b50\u5f39" };
+    for (const char* language : { "zh-Hans", "\xEF\xBB\xBF" "zh-Hans\r\n" })
+    {
+        SW::SetLanguage(language);
+        for (size_t i = 0; i < chinese.size(); ++i)
+            Check(*SW::Weapons[i].name == chinese[i], "Chinese translations preserve all eight weapon names");
     }
     struct Translation { const char* code; const wchar_t* salvationArmy; const wchar_t* magicBullet; };
     const Translation translations[] = {
         { "cs", L"Arm\u00e1da sp\u00e1sy", L"Magick\u00e1 kulka" },
         { "de", L"Heilsarmee", L"Zauberkugel" },
-        { "es", L"Ejer. Salvaci\u00f3n", L"Bala M\u00e1gica" },
+        { "es", L"Ej\u00e9rcito de Salvaci\u00f3n", L"Bala M\u00e1gica" },
         { "es-419", L"Ej\u00e9rcito Salva", L"Bala m\u00e1gica" },
         { "fr", L"Arm\u00e9e du salut", L"Balle magique" },
         { "is", L"Hj\u00e1lpr\u00e6\u00f0isherinn", L"T\u00f6frak\u00fala" },
-        { "it", L"E. salvezza", L"Pallottola M." },
-        { "nl", L"Leger Twijfel", L"Tover Kogel" },
+        { "it", L"Esercito della salvezza", L"Pallottola magica" },
+        { "nl", L"Leger des Twijfels", L"Tover Kogel" },
         { "pl", L"Armia Zbawienia", L"Magiczny pocisk" },
-        { "pt", L"Exc. de Resgate", L"Bala M\u00e1gica" },
-        { "pt-br", L"Ex\u00e9rcito", L"Bala M\u00e1gica" },
+        { "pt", L"Ex\u00e9rcito de Resgate", L"Bala M\u00e1gica" },
+        { "pt-br", L"Ex\u00e9rcito da Salva\u00e7\u00e3o", L"Bala M\u00e1gica" },
         { "ru", L"\u0410\u0440\u043c\u0438\u044f \u0441\u043f\u0430\u0441\u0435\u043d\u0438\u044f",
-            L"\u0412\u043e\u043b\u0448\u0435\u0431\u043d. \u043f\u0443\u043b\u044f" },
-        { "sv", L"Tr\u00e4dkramare", L"Magisk Kula" },
+            L"\u0412\u043e\u043b\u0448\u0435\u0431\u043d\u0430\u044f \u043f\u0443\u043b\u044f" },
+        { "sv", L"Fr\u00e4lsningsarm\u00e9n", L"Magisk Kula" },
     };
     for (const auto& translation : translations)
     {
         SW::SetLanguage(translation.code);
         Check(SW::strings.strSalvationArmy == translation.salvationArmy &&
             SW::strings.strMagicBullet == translation.magicBullet,
-            "native menu translations retain accents, Cyrillic and original abbreviations");
+            "native menu translations match current names and preserve Unicode");
         for (const auto& weapon : SW::Weapons)
             Check(!weapon.name->empty(), "all eight translated weapon captions are populated");
     }
@@ -53,7 +62,7 @@ static void LanguageTests()
     SW::SetLanguage("\xEF\xBB\xBF" "fr\r\n");
     Check(SW::strings.strClonedSheep == L"Mouton clon\u00e9", "BOM selects accented French translation");
     SW::SetLanguage("en");
-    puts("PASS: native secret weapon translations, Unicode, Chinese/unknown fallback and BOM/whitespace handling");
+    puts("PASS: native secret weapon translations, Unicode, Chinese names, English fallback and BOM/whitespace handling");
 }
 
 static size_t __cdecl TestRead(void* buffer, size_t size, size_t count, void* stream)
@@ -74,14 +83,14 @@ static void SchemeTests()
     const std::vector<BYTE> expected(payload, payload + SW::NativeSchemePayloadSize);
     SW::originalRead = TestRead;
     SW::originalWrite = TestWrite;
-    for (int stock : { 0, 1, 9, 10, 11, 99, 100 })
+    for (int stock : { 0, 1, 9, 10, 11, 98, 99 })
     {
         FILE* stream = nullptr;
         Check(fopen_s(&stream, "Release/secret-weapons-test.wep", "w+b") == 0, "open scheme fixture");
         BYTE header[24]{};
         fwrite(header, 1, sizeof(header), stream);
         for (size_t i = 0; i < SW::Weapons.size(); ++i)
-            SW::secretStocks[i] = (stock + i) % 101;
+            SW::secretStocks[i] = (stock + i) % 100;
         const auto stocks = SW::secretStocks;
         Check(SW::WriteFile(payload, SW::WeaponRecordSize, SW::NativeWeaponCount, stream) == 38, "save payload");
         Check(ftell(stream) == 0x1504, "extension file length");
@@ -112,8 +121,8 @@ static void SchemeTests()
         SW::SchemeExtension extension{ { 'P', 'L', 'U', 'S' }, {} };
         extension.stocks.fill(7);
         if (malformed == 1) extension.magic[0] = 'X';
-        if (malformed == 2) extension.stocks.front() = 101;
-        if (malformed == 3) extension.stocks.back() = 101;
+        if (malformed == 2) extension.stocks.front() = 100;
+        if (malformed == 3) extension.stocks.back() = 100;
         if (malformed >= 1 && malformed <= 4)
             fwrite(&extension, 1, malformed == 4 ? 8 : sizeof(extension), stream);
         fflush(stream);
@@ -186,10 +195,10 @@ static void NetworkTests()
         *reinterpret_cast<uint32_t*>(SW::image + 0x188b14) = reliable;
         for (int broadcast : { 0, 1 })
         {
-            for (int stock : { 0, 1, 9, 10, 11, 99, 100 })
+            for (int stock : { 0, 1, 9, 10, 11, 98, 99 })
             {
                 for (size_t i = 0; i < SW::Weapons.size(); ++i)
-                    SW::secretStocks[i] = (stock + i) % 101;
+                    SW::secretStocks[i] = (stock + i) % 100;
                 const auto hostStocks = SW::secretStocks;
                 if (broadcast)
                     SW::SendWeaponPacketToAll(lobby.data(), nullptr, host, native.data(), native.size());
@@ -220,7 +229,7 @@ static void NetworkTests()
             SW::secretStocks.fill(0); // Default must clear clients too.
             SW::SendWeaponPacketToAll(lobby.data(), nullptr, host, native.data(), native.size());
             if (malformed == 1) sentPacket.resize(native.size()); // Unmodified host.
-            if (malformed == 2) sentPacket.back() = 1; // Last DWORD > 100.
+            if (malformed == 2) sentPacket[sentPacket.size() - sizeof(uint32_t)] = 100; // Last DWORD > 99.
             if (malformed == 3) sentPacket[native.size()] = 'X';
             if (malformed == 4) sentPacket.resize(sentPacket.size() - 4);
             if (malformed == 5) sentPacket.push_back(0);
@@ -273,11 +282,11 @@ static void StockTests()
     for (size_t i = 0; i < offsets.size(); ++i)
         Check(SW::Weapons[i].stockOffset == offsets[i], "catalog matches supplied stock offsets");
     SW::originalPrepareStocks = reinterpret_cast<SW::PrepareStocks>(NativePrepare);
-    for (int stock : { 0, 1, 9, 10, 11, 99, 100 })
+    for (int stock : { 0, 1, 9, 10, 11, 98, 99 })
     {
         std::vector<BYTE> object(0xcf0, 0x65);
         for (size_t i = 0; i < SW::Weapons.size(); ++i)
-            SW::secretStocks[i] = (stock + i) % 101;
+            SW::secretStocks[i] = (stock + i) % 100;
         SW::PrepareWeaponStocks(object.data(), nullptr, 0);
         for (size_t team = 0; team < 6; ++team)
         {
@@ -493,16 +502,16 @@ static void EditorTests()
             "generated stock label, trackbar and value match native screen positions and sizes");
     }
     Check(SendMessageW(editor->slider, TBM_GETRANGEMIN, 0, 0) == 0 &&
-        SendMessageW(editor->slider, TBM_GETRANGEMAX, 0, 0) == 100, "stock slider allows zero through 100");
+        SendMessageW(editor->slider, TBM_GETRANGEMAX, 0, 0) == 99, "stock slider allows zero through 99");
     SendMessageW(list, LB_SETCURSEL, 38, 0);
     SW::SelectWeapon(object.data(), nullptr);
-    for (int stock : { 10, 11, 100 })
+    for (int stock : { 10, 11, 99 })
     {
         SendMessageW(editor->slider, TBM_SETPOS, TRUE, stock);
         SendMessageW(editor->panel, WM_HSCROLL, TB_THUMBPOSITION, reinterpret_cast<LPARAM>(editor->slider));
         char displayed[128]{};
         GetWindowTextA(editor->value, displayed, sizeof(displayed));
-        const char* expected = stock == 10 ? "Unlimited" : stock == 11 ? "11" : "100";
+        const char* expected = stock == 10 ? "Unlimited" : stock == 11 ? "11" : "99";
         Check(SW::secretStocks[0] == static_cast<uint32_t>(stock) && strcmp(displayed, expected) == 0,
             "10 remains Unlimited; larger stock values display as numbers");
     }

@@ -78,62 +78,49 @@ static void LanguageTests(const char* path)
         const wchar_t* aquaSheep;
         const wchar_t* herd;
         const wchar_t* title;
-        bool extended;
+        bool hints;
     };
     const ExpectedTranslation expectedTranslations[] = {
         { "cs", L"Vodn\u00ed ovce", L"St\u00e1do zbran\u00ed", L"Roz\u0161\u00ed\u0159en\u00e1 nastaven\u00ed", true },
-        { "pt-br", L"Aqua Carneiro", L"Rebanho/manada", L"Op\u00e7\u00f5es de Jogo Estendidas", true },
-        { "nl", L"Waterschaap", L"Kudde", L"Uitgebreide opties", true },
+        { "pt-br", L"Ovelha Aqu\u00e1tica", L"Manada de armas", L"Op\u00e7\u00f5es Avan\u00e7adas", true },
+        { "nl", L"Waterschaap", L"Kudde", L"Uitgebreide opties", false },
         { "en", L"Aqua Sheep", L"Herd weapon", englishGroupTitle.c_str(), true },
-        { "fr", L"Mouton aquatique", L"Troupeau", L"Options de jeu \u00e9tendues", true },
-        { "de", L"Aquaschaf", L"Herde", L"Erweiterte Spieloptionen", true },
-        { "it", L"Pecora acquatica", L"Mandria", L"Opzioni estese", true },
-        { "pt", L"Ovelha Aqu\u00e1tica", L"Manada", L"Op\u00e7\u00f5es de jogo alargadas", true },
-        { "ru", L"\u0410\u043a\u0432\u0430-\u043e\u0432\u0446\u0430", L"\u0421\u0442\u0430\u0434\u043e", L"\u0420\u0430\u0441\u0448\u0438\u0440\u0435\u043d\u043d\u044b\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438\u0433\u0440\u044b", true },
-        { "es", L"Oveja acu\u00e1tica", L"Manada", L"Opciones de Juego Extendidas", true },
-        { "es-419", L"Oveja acu\u00e1tica", L"Arma de reba\u00f1o", L"Opciones extendidas", true },
-        { "sv", L"Vattenf\u00e5r", L"Hjord", L"Ut\u00f6kade Spelinst\u00e4llningar", true },
+        { "fr", L"Mouton aquatique", L"Troupeau", L"Options de jeu \u00e9tendues", false },
+        { "de", L"Aquaschaf", L"Herde", L"Erweiterte Spieloptionen", false },
+        { "is", L"Vatnakind", L"Vopnahj\u00f6r\u00f0", L"Aukastillingar", true },
+        { "it", L"Pecora acquatica", L"Mandria", L"Opzioni estese", false },
+        { "pl", L"Wodna Owca", L"Stadne bronie", L"Opcje Rozszerzone", true },
+        { "pt", L"Ovelha Aqu\u00e1tica", L"Manada de armas", L"Op\u00e7\u00f5es Avan\u00e7adas", true },
+        { "ru", L"\u0410\u043a\u0432\u0430-\u043e\u0432\u0446\u0430", L"\u0421\u0442\u0430\u0434\u043e", L"\u0420\u0430\u0441\u0448\u0438\u0440\u0435\u043d\u043d\u044b\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438\u0433\u0440\u044b", false },
+        { "es", L"Oveja acu\u00e1tica", L"Manada", L"Opciones de Juego Extendidas", false },
+        { "es-419", L"Oveja acu\u00e1tica", L"Arma de reba\u00f1o", L"Opciones extendidas", false },
+        { "sv", L"Vattenf\u00e5r", L"Hjord", L"Ut\u00f6kade Spelinst\u00e4llningar", false },
+        { "zh-Hans", L"\u6c34\u4e2d\u7ef5\u7f8a", L"\u7fa4\u53d1\u6b66\u5668", L"\u6269\u5c55\u9009\u9879", true },
     };
-    for (const char* language : { "cs", "de", "es", "es-419", "fr", "is", "it", "nl", "pl", "pt", "pt-br",
+    for (const char* language : { "cs", "de", "en", "es", "es-419", "fr", "is", "it", "nl", "pl", "pt", "pt-br",
         "ru", "sv", "zh-Hans", "de\r\n", "\xEF\xBB\xBF" "zh-Hans\r\n" })
     {
         EO::SetLanguage(language);
         const ExpectedTranslation* expected = nullptr;
-        const bool keepHints = strcmp(language, "cs") == 0 || strcmp(language, "pl") == 0 || strcmp(language, "pt") == 0 ||
-            strcmp(language, "pt-br") == 0 || strcmp(language, "zh-Hans") == 0 ||
-            strcmp(language, "\xEF\xBB\xBF" "zh-Hans\r\n") == 0;
+        const char* code = language;
+        if (strcmp(language, "de\r\n") == 0) code = "de";
+        if (strcmp(language, "\xEF\xBB\xBF" "zh-Hans\r\n") == 0) code = "zh-Hans";
         for (const auto& entry : expectedTranslations)
-            if (strcmp(language, entry.code) == 0 || (strcmp(language, "de\r\n") == 0 && strcmp(entry.code, "de") == 0))
+            if (strcmp(code, entry.code) == 0)
                 expected = &entry;
-        if (expected)
+        Check(expected != nullptr, "every supported language has translation expectations");
+        Check(EO::strings.strAquaSheep == expected->aquaSheep && EO::strings.strHerd == expected->herd &&
+            EO::strings.strExtendedOptions == expected->title,
+            "language selection preserves Unicode and translated group titles");
+        for (const auto& option : EO::Options)
         {
-            Check(EO::strings.strAquaSheep == expected->aquaSheep && EO::strings.strHerd == expected->herd &&
-                EO::strings.strExtendedOptions == expected->title,
-                "language selection preserves Unicode and translated group titles");
-            if (keepHints) Check(!EO::strings.hintGodMode.empty() && !EO::strings.hintAquaSheep.empty(), "supplied hints are preserved");
-            for (const auto* text : { &EO::strings.strExtendedFusesHerds, &EO::strings.strWeaponsDontEndTurn,
-                &EO::strings.strLossOfControlDoesntEndTurn, &EO::strings.strPersistentRope,
-                &EO::strings.strCrateRate, &EO::strings.strWormSelectAfterMovement, &EO::strings.strCrateLimit })
-                Check(text->empty() != expected->extended, "extended labels are translated in the supplied languages");
-            if (!keepHints || strcmp(language, "cs") == 0)
-                for (const auto& option : EO::Options)
-                    Check(!option.label->empty(), "all option labels are filled in the requested languages");
-            else for (auto index : { EO::OptionIndex::HighJump, EO::OptionIndex::SheepHeaven, EO::OptionIndex::SuperShopperCrates,
-                EO::OptionIndex::UtilitiesDontEndTurn, EO::OptionIndex::RapidPlay, EO::OptionIndex::IndestructibleTerrain,
-                EO::OptionIndex::InvisibleTerrain, EO::OptionIndex::FastCrates, EO::OptionIndex::InstantMines,
-                EO::OptionIndex::DisableBackflip, EO::OptionIndex::DisableUnlockedAim })
-                Check(EO::FindOption(EO::ToIndex(index))->label->empty() && EO::FindOption(EO::ToIndex(index))->hint->empty(),
-                    "excluded Portuguese translations retain blank placeholders");
+            Check(!option.label->empty(), "all option labels are filled in the requested languages");
+            Check(option.hint->empty() != expected->hints,
+                "translated hints are populated and unmapped hints retain blank placeholders");
         }
-        else
-            for (const auto& option : EO::Options)
-                Check(option.hint->empty() && (weaponNames[EO::ToIndex(option.index)].empty() ? option.label->empty() :
-                    *option.label == L": " + weaponNames[EO::ToIndex(option.index)]), "remaining untranslated labels stay blank");
         for (const auto& entry : herdIds)
             Check(*EO::FindOption(EO::ToIndex(entry.first))->label == EO::strings.strHerd + L": " + weaponNames[EO::ToIndex(entry.first)],
                 "every language composes herd captions with its translated GAME_HERD prefix and native weapon names");
-        if (!expected) Check(EO::strings.strExtendedOptions.empty(), "untranslated group title remains blank");
-        if (strcmp(language, "cs") != 0) Check(EO::strings.hintHerd.empty(), "unmapped shared herd hint stays blank");
     }
     for (const auto& entry : herdIds)
         Check(EO::FindOption(EO::ToIndex(entry.first))->hint == &EO::strings.hintHerd,
@@ -147,10 +134,11 @@ static void LanguageTests(const char* path)
     EO::SetLanguage("fr");
     Check(EO::strings.strCrateRate == L"Taux de caisses", "preserve customized French crate rate label");
     EO::SetLanguage("pt");
-    Check(EO::strings.hintCrateRate.find(L"\"Contagem m\u00e1xima de caixas no mapa no in\u00edcio\"") != std::wstring::npos,
-        "preserved Portuguese hint decodes escaped quotes into display text");
+    Check(EO::strings.hintCrateRate ==
+        L"Especifica quantas caixas podem aparecer em simult\u00e2neo no in\u00edcio do turno. Com as probabilidades de queda de caixas definidas para 100%, faz aparecer exatamente a quantidade especificada.",
+        "preserve current Portuguese crate rate hint and Unicode");
     EO::SetLanguage("en");
-    puts("PASS: imported WA translations, Unicode, hint composition, English fallback, untranslated placeholders and herd string IDs");
+    puts("PASS: current translations, Unicode, translated/blank hints, English fallback and herd string IDs");
 }
 
 static void SchemeTests()
