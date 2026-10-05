@@ -166,6 +166,7 @@
     <ClInclude Include="CDButton.h" />
     <ClInclude Include="Hooks.h" />
     <ClInclude Include="SecretWeapons.h" />
+    <ClInclude Include="SecretWeaponsStrings.h" />
     <ClInclude Include="ExtendedOptions.h" />
     <ClInclude Include="ExtendedOptionsStrings.h" />
     <ClInclude Include="NetworkTeams.h" />

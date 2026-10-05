@@ -24,6 +24,9 @@
     <ClInclude Include="SecretWeapons.h">
       <Filter>Headers</Filter>
     </ClInclude>
+    <ClInclude Include="SecretWeaponsStrings.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
     <ClInclude Include="ExtendedOptions.h">
       <Filter>Headers</Filter>
     </ClInclude>

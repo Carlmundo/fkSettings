@@ -11,6 +11,51 @@ static void Check(bool value, const char* description)
     if (!value) throw std::runtime_error(description);
 }
 
+static void LanguageTests()
+{
+    const std::array<const wchar_t*, 8> english{
+        L"Salvation Army", L"MB Bomb", L"Sheep Strike", L"Carpet Bomb",
+        L"Cloned Sheep", L"Concrete Donkey", L"Nuclear Bomb", L"Magic Bullet" };
+    for (const char* language : { "en", "zh-Hans", "", "unknown", "\xEF\xBB\xBF" "en\r\n" })
+    {
+        SW::SetLanguage(language);
+        for (size_t i = 0; i < english.size(); ++i)
+            Check(*SW::Weapons[i].name == english[i], "English, missing Chinese translation and fallback preserve names");
+    }
+    struct Translation { const char* code; const wchar_t* salvationArmy; const wchar_t* magicBullet; };
+    const Translation translations[] = {
+        { "cs", L"Arm\u00e1da sp\u00e1sy", L"Magick\u00e1 kulka" },
+        { "de", L"Heilsarmee", L"Zauberkugel" },
+        { "es", L"Ejer. Salvaci\u00f3n", L"Bala M\u00e1gica" },
+        { "es-419", L"Ej\u00e9rcito Salva", L"Bala m\u00e1gica" },
+        { "fr", L"Arm\u00e9e du salut", L"Balle magique" },
+        { "is", L"Hj\u00e1lpr\u00e6\u00f0isherinn", L"T\u00f6frak\u00fala" },
+        { "it", L"E. salvezza", L"Pallottola M." },
+        { "nl", L"Leger Twijfel", L"Tover Kogel" },
+        { "pl", L"Armia Zbawienia", L"Magiczny pocisk" },
+        { "pt", L"Exc. de Resgate", L"Bala M\u00e1gica" },
+        { "pt-br", L"Ex\u00e9rcito", L"Bala M\u00e1gica" },
+        { "ru", L"\u0410\u0440\u043c\u0438\u044f \u0441\u043f\u0430\u0441\u0435\u043d\u0438\u044f",
+            L"\u0412\u043e\u043b\u0448\u0435\u0431\u043d. \u043f\u0443\u043b\u044f" },
+        { "sv", L"Tr\u00e4dkramare", L"Magisk Kula" },
+    };
+    for (const auto& translation : translations)
+    {
+        SW::SetLanguage(translation.code);
+        Check(SW::strings.strSalvationArmy == translation.salvationArmy &&
+            SW::strings.strMagicBullet == translation.magicBullet,
+            "native menu translations retain accents, Cyrillic and original abbreviations");
+        for (const auto& weapon : SW::Weapons)
+            Check(!weapon.name->empty(), "all eight translated weapon captions are populated");
+    }
+    SW::SetLanguage(" \tpt\r\n");
+    Check(SW::strings.strSheepStrike == L"Ataque Ovelhas", "whitespace selects Portuguese translations");
+    SW::SetLanguage("\xEF\xBB\xBF" "fr\r\n");
+    Check(SW::strings.strClonedSheep == L"Mouton clon\u00e9", "BOM selects accented French translation");
+    SW::SetLanguage("en");
+    puts("PASS: native secret weapon translations, Unicode, Chinese/unknown fallback and BOM/whitespace handling");
+}
+
 static size_t __cdecl TestRead(void* buffer, size_t size, size_t count, void* stream)
 {
     return fread(buffer, size, count, static_cast<FILE*>(stream));
@@ -226,8 +271,7 @@ static void StockTests()
 {
     constexpr std::array<size_t, 8> offsets{ 0x49e, 0x49f, 0x4a2, 0x4a3, 0x4a6, 0x4a7, 0x4aa, 0x4ab };
     for (size_t i = 0; i < offsets.size(); ++i)
-        Check(SW::Weapons[i].stockOffset == offsets[i] && SW::Weapons[i].stringId == 4938 + i,
-            "catalog matches supplied offsets and consecutive resource IDs");
+        Check(SW::Weapons[i].stockOffset == offsets[i], "catalog matches supplied stock offsets");
     SW::originalPrepareStocks = reinterpret_cast<SW::PrepareStocks>(NativePrepare);
     for (int stock : { 0, 1, 9, 10, 11, 99, 100 })
     {
@@ -372,6 +416,9 @@ static INT_PTR CALLBACK DialogProc(HWND window, UINT message, WPARAM wParam, LPA
 
 static void EditorTests()
 {
+    SW::SetLanguage("en");
+    // Simulate an edited translation with an accented character.
+    SW::strings.strSheepStrike = L"Ataque de Ovelhas \u00e1";
     SW::secretStocks.fill(0);
     SW::loadNativeString = reinterpret_cast<SW::LoadNativeString>(NativeLoadString);
     SW::originalDefault = reinterpret_cast<SW::Select>(NativeDefault);
@@ -461,9 +508,9 @@ static void EditorTests()
     }
     for (size_t i = 0; i < SW::Weapons.size(); ++i)
     {
-        char name[128]{};
-        SendMessageA(list, LB_GETTEXT, 38 + i, reinterpret_cast<LPARAM>(name));
-        Check(strcmp(name, SW::Weapons[i].fallbackName) == 0, "names appended in requested order");
+        wchar_t name[128]{};
+        SendMessageW(list, LB_GETTEXT, 38 + i, reinterpret_cast<LPARAM>(name));
+        Check(*SW::Weapons[i].name == name, "localized wide names appended in requested order");
         SendMessageW(list, LB_SETCURSEL, 38 + i, 0);
         SW::SelectWeapon(object.data(), nullptr);
         Check(editor->secretIndex == i && SW::GetSelection(listObject.data(), nullptr) == 0,
@@ -479,6 +526,22 @@ static void EditorTests()
         SW::SelectWeapon(object.data(), nullptr);
         Check(SendMessageW(editor->slider, TBM_GETPOS, 0, 0) == static_cast<LRESULT>(i + 1), "independent stock restored on selection");
     }
+    const auto stocksBeforeLanguage = SW::secretStocks;
+    const LRESULT selectionBeforeLanguage = SendMessageW(list, LB_GETCURSEL, 0, 0);
+    const LRESULT topBeforeLanguage = SendMessageW(list, LB_GETTOPINDEX, 0, 0);
+    const int nameLoadsBeforeLanguage = nameLoadCalls;
+    SW::SetLanguage("pt\r\n");
+    wchar_t refreshedName[128]{};
+    SendMessageW(list, LB_GETTEXT, 40, reinterpret_cast<LPARAM>(refreshedName));
+    Check(wcscmp(refreshedName, L"Ataque Ovelhas") == 0, "language update refreshes an existing editor with Portuguese names");
+    SendMessageW(list, LB_GETTEXT, 0, reinterpret_cast<LPARAM>(refreshedName));
+    Check(wcscmp(refreshedName, L"Native weapon") == 0 && SendMessageW(list, LB_GETCOUNT, 0, 0) == 46,
+        "language update preserves native weapon names and list size");
+    Check(SW::secretStocks == stocksBeforeLanguage && nameLoadCalls == nameLoadsBeforeLanguage &&
+        SendMessageW(list, LB_GETCURSEL, 0, 0) == selectionBeforeLanguage &&
+        SendMessageW(list, LB_GETTOPINDEX, 0, 0) == topBeforeLanguage && editor->secretSelected && editor->secretIndex == 7 &&
+        SendMessageW(editor->slider, TBM_GETPOS, 0, 0) == 8,
+        "language update preserves stocks, scheme state, selected weapon and scroll position");
     Check(IsWindowEnabled(defaultButton), "stock changes enable Default");
     Check(strcmp(*reinterpret_cast<const char**>(SW::image + 0x187644), "User defined") == 0 && nameLoadCalls > 0,
         "secret-only edit updates the native stored scheme name");
@@ -609,6 +672,7 @@ int main(int argc, char** argv)
     {
         std::vector<BYTE> image(0x5b8000);
         SW::image = image.data();
+        LanguageTests();
         SchemeTests();
         StockTests();
         NetworkTests();

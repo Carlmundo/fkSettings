@@ -702,6 +702,7 @@ BOOL WINAPI detourTextOutA(HDC hdc, int x, int y, LPCSTR lpString, int c) {
 
 void AssignLabels() 
 {
+    SecretWeapons::SetLanguage(lang);
     ExtendedOptions::SetLanguage(lang);
     if (lang == "en")
     {

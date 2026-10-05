@@ -10,6 +10,7 @@ typedef struct IUnknown IUnknown;
 #include <vector>
 #include "include/MinHook.h"
 #include "SecretWeapons.h"
+#include "SecretWeaponsStrings.h"
 #include "NetworkTeams.h"
 #include "ExtendedOptions.h"
 
@@ -23,21 +24,21 @@ namespace
     constexpr size_t SecretWeaponCount = 8;
     constexpr size_t WeaponRecordSize = 0x8c;
     constexpr size_t NativeSchemePayloadSize = NativeWeaponCount * WeaponRecordSize;
+    WeaponStrings strings = MakeWeaponStrings("en");
     struct Weapon
     {
         size_t stockOffset;
-        UINT stringId;
-        const char* fallbackName;
+        const std::wstring* name;
     };
     constexpr std::array<Weapon, SecretWeaponCount> Weapons{{
-        { 0x49e, 4938, "Salvation Army" },
-        { 0x49f, 4939, "MB Bomb" },
-        { 0x4a2, 4940, "Sheep Strike" },
-        { 0x4a3, 4941, "Carpet Bomb" },
-        { 0x4a6, 4942, "Cloned Sheep" },
-        { 0x4a7, 4943, "Concrete Donkey" },
-        { 0x4aa, 4944, "Nuclear Bomb" },
-        { 0x4ab, 4945, "Magic Bullet" },
+        { 0x49e, &strings.strSalvationArmy },
+        { 0x49f, &strings.strMBBomb },
+        { 0x4a2, &strings.strSheepStrike },
+        { 0x4a3, &strings.strCarpetBomb },
+        { 0x4a6, &strings.strClonedSheep },
+        { 0x4a7, &strings.strConcreteDonkey },
+        { 0x4aa, &strings.strNuclearBomb },
+        { 0x4ab, &strings.strMagicBullet },
     }};
     constexpr size_t GameObjectHeaderSize = 0x1c;
     constexpr size_t TeamStride = 0x108;
@@ -327,10 +328,7 @@ namespace
         bool appended = true;
         for (size_t i = 0; i < Weapons.size(); ++i)
         {
-            char name[128] = {};
-            if (!LoadStringA(instance, Weapons[i].stringId, name, sizeof(name)))
-                strcpy_s(name, Weapons[i].fallbackName);
-            if (SendMessageA(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name)) !=
+            if (SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(Weapons[i].name->c_str())) !=
                 NativeWeaponCount + static_cast<LRESULT>(i))
             {
                 appended = false;
@@ -668,5 +666,25 @@ bool InstallInImage(BYTE* frontendImage)
 bool Install()
 {
     return InstallInImage(reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr)));
+}
+
+void SetLanguage(const std::string& language)
+{
+    strings = MakeWeaponStrings(language);
+    for (HWND window : editorWindows)
+        if (auto editor = GetEditor(window))
+        {
+            const LRESULT selection = SendMessageW(editor->list, LB_GETCURSEL, 0, 0);
+            const LRESULT top = SendMessageW(editor->list, LB_GETTOPINDEX, 0, 0);
+            for (size_t i = 0; i < Weapons.size(); ++i)
+            {
+                const WPARAM index = NativeWeaponCount + i;
+                SendMessageW(editor->list, LB_DELETESTRING, index, 0);
+                SendMessageW(editor->list, LB_INSERTSTRING, index,
+                    reinterpret_cast<LPARAM>(Weapons[i].name->c_str()));
+            }
+            SendMessageW(editor->list, LB_SETCURSEL, selection, 0);
+            SendMessageW(editor->list, LB_SETTOPINDEX, top, 0);
+        }
 }
 }

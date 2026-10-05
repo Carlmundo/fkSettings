@@ -4,20 +4,35 @@ The weapon editor (dialog 200) now has eight secret entries, each with its own
 stock slider: 0–100, with 10 displayed as Unlimited. This implementation exposes stock only; it does
 not add power, delay, or crate-probability settings for secret weapons.
 
-The implementation lives in `fkSettings/SecretWeapons.cpp`. It uses the
-frontend's strings when present, otherwise the following English names. The
-entries follow the 38 native weapons in this order:
+The implementation lives in `fkSettings/SecretWeapons.cpp`. Secret weapon names
+come from the language switch in `fkSettings/SecretWeaponsStrings.h`, rather
+than frontend string resources. The entries follow the 38 native weapons in
+this order:
 
-| Weapon | String ID | Team 1 `game.dat` stock offset |
-| --- | --- | --- |
-| Salvation Army | 4938 | `0x49E` |
-| MB Bomb | 4939 | `0x49F` |
-| Sheep Strike | 4940 | `0x4A2` |
-| Carpet Bomb | 4941 | `0x4A3` |
-| Cloned Sheep | 4942 | `0x4A6` |
-| Concrete Donkey | 4943 | `0x4A7` |
-| Nuclear Bomb | 4944 | `0x4AA` |
-| Magic Bullet | 4945 | `0x4AB` |
+| Weapon | Team 1 `game.dat` stock offset |
+| --- | --- |
+| Salvation Army | `0x49E` |
+| MB Bomb | `0x49F` |
+| Sheep Strike | `0x4A2` |
+| Carpet Bomb | `0x4A3` |
+| Cloned Sheep | `0x4A6` |
+| Concrete Donkey | `0x4A7` |
+| Nuclear Bomb | `0x4AA` |
+| Magic Bullet | `0x4AB` |
+
+`dllmain.cpp` reads `language.txt` at startup and passes the existing `lang`
+value to `SecretWeapons::SetLanguage` alongside Extended Options. The switch
+defines `strSalvationArmy`, `strMBBomb`, `strSheepStrike`, `strCarpetBomb`,
+`strClonedSheep`, `strConcreteDonkey`, `strNuclearBomb` and `strMagicBullet` as
+owned wide strings. Each of the same 15 language codes supported by Extended
+Options has its own editable assignments. Names for 14 languages were extracted
+from the supplied `worms2.exe` or `.dw2lang` files. The original short menu names
+are active; different longer names are kept as commented assignments directly
+below them. Existing English captions remain unchanged. Chinese retains English
+placeholders because no game-name translation was supplied in that folder.
+Missing or unknown languages use English; a UTF-8 BOM and surrounding whitespace
+are stripped before matching. Language updates refresh open weapon lists while
+preserving the selected weapon, scroll position, stocks and scheme state.
 
 It uses the existing string 4950 for Unlimited. Generated trackbars have upward
 thumbs and tick marks above the track (`TBS_TOP`), matching the native pages.
