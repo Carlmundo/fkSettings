@@ -452,8 +452,7 @@ static void EditorTests(const char* path)
     auto editor = static_cast<EO::Editor*>(GetPropW(window, EO::ContextProperty));
     const auto configuredGodHint = EO::strings.hintGodMode;
     for (const auto& option : EO::Options)
-        for (HWND control : { editor->controls[EO::ToIndex(option.index)], editor->labels[EO::ToIndex(option.index)],
-            editor->readouts[EO::ToIndex(option.index)] })
+        for (HWND control : { editor->controls[EO::ToIndex(option.index)] })
             if (control)
             {
                 RECT bounds{};
@@ -623,16 +622,27 @@ static void EditorTests(const char* path)
         auto& hint = *const_cast<std::wstring*>(option.hint);
         hint = L"Hover hint " + std::to_wstring(EO::ToIndex(option.index)) + L"\n\x0416\x4E2D";
         const size_t index = EO::ToIndex(option.index);
-        for (HWND control : { editor->controls[index], editor->labels[index], editor->readouts[index] })
+        for (HWND control : { editor->controls[index] })
             if (control)
             {
                 SendMessageW(control, WM_MOUSEMOVE, 0, MAKELPARAM(1, 1));
-                Check(EO::WindowText(hintBox) == hint, "checkbox, trackbar, title and readout show option hint");
+                Check(EO::WindowText(hintBox) == hint, "checkbox and trackbar show option hint");
                 SetWindowTextW(hintBox, L"Native cursor hint");
                 SendMessageW(control, WM_SETCURSOR, reinterpret_cast<WPARAM>(control), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
                 Check(EO::WindowText(hintBox) == hint, "custom hint takes precedence after frontend cursor handling");
                 SendMessageW(control, WM_MOUSELEAVE, 0, 0);
                 Check(EO::WindowText(hintBox).empty(), "leaving an extended control clears its hint");
+            }
+        for (HWND label : { editor->labels[index], editor->readouts[index] })
+            if (label)
+            {
+                SetWindowTextW(hintBox, L"Native background hint");
+                SendMessageW(label, WM_MOUSEMOVE, 0, MAKELPARAM(1, 1));
+                SendMessageW(label, WM_SETCURSOR, reinterpret_cast<WPARAM>(label), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+                Check(EO::WindowText(hintBox) == L"Native background hint",
+                    "slider caption and readout do not display option hints");
+                DWORD_PTR reference = 0;
+                Check(!GetWindowSubclass(label, EO::HintProc, 1, &reference), "static slider text has no hint handler");
             }
     }
     SetWindowTextW(hintBox, L"Native background hint");
@@ -651,8 +661,8 @@ static void EditorTests(const char* path)
     {
         RECT bounds{};
         GetWindowRect(control, &bounds);
-        Check(SendMessageW(control, WM_NCHITTEST, 0, MAKELPARAM(bounds.left + 1, bounds.top + 1)) == HTCLIENT,
-            "slider title and readout accept mouse hits for hints");
+        Check(SendMessageW(control, WM_NCHITTEST, 0, MAKELPARAM(bounds.left + 1, bounds.top + 1)) == HTTRANSPARENT,
+            "slider title and readout pass mouse hits to the page like ordinary static labels");
     }
     SendMessageW(editor->controls[0], WM_MOUSEMOVE, 0, 0);
     SendMessageW(editor->controls[1], WM_MOUSEMOVE, 0, 0);
@@ -683,7 +693,7 @@ static void EditorTests(const char* path)
     Check(EO::values == beforeLanguageChange && edits == editsBeforeLanguageChange,
         "language refresh does not edit the scheme");
     SendMessageW(editor->controls[0], WM_MOUSELEAVE, 0, 0);
-    puts("PASS: persistent hint box 1003, all option surfaces, shared herd hints, language refresh and hover transitions");
+    puts("PASS: checkbox/trackbar hints in box 1003, passive slider labels/readouts, shared herd hints and hover transitions");
     for (const auto& option : EO::Options)
     {
         const size_t index = EO::ToIndex(option.index);

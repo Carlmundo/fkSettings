@@ -212,10 +212,10 @@ editable placeholders. Fill them with wide string literals, including
 `\n` for multiple lines. The four derived herd labels share `hintHerd` beneath
 `strHerd`. The main group has no hint variable or hover hint handler.
 
-Hovering a checkbox, slider, slider caption or numeric readout writes its hint
+Hovering a checkbox or trackbar writes its hint
 to the existing ancestor Static control 1003. The group remains behind the
-options and returns transparent mouse hits. Slider captions/readouts use
-`SS_NOTIFY` to receive their own mouse input without making the group opaque.
+options and returns transparent mouse hits. Slider captions and numeric readouts
+are ordinary static labels without hint handlers; their mouse hits pass to the page.
 Custom hints run after the native cursor handler and track mouse departure,
 preserving a newer hint from another control. Language changes refresh an
 active hint, and editor destruction clears any hint it still owns. Hints do

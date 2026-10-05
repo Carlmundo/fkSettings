@@ -471,11 +471,11 @@ namespace
             const int id = FirstCheckId + static_cast<int>(i);
             if (option.IsSlider())
             {
-                editor->labels[i] = create(L"STATIC", option.label->c_str(), SS_LEFT | SS_NOTIFY, FirstCheckId + 100 + static_cast<int>(i),
+                editor->labels[i] = create(L"STATIC", option.label->c_str(), SS_LEFT, FirstCheckId + 100 + static_cast<int>(i),
                     RECT{ x, y, x + 171, y + LabelHeight }, 0, option.blankLines);
                 editor->controls[i] = create(TRACKBAR_CLASSW, L"", WS_TABSTOP | TBS_AUTOTICKS | TBS_TOP | sliderBorder, id,
                     RECT{ x, y + SliderTop, x + 100, y + SliderTop + SliderHeight }, sliderBorderEx, option.blankLines);
-                editor->readouts[i] = create(L"STATIC", L"", SS_LEFT | SS_NOTIFY, FirstCheckId + 200 + static_cast<int>(i),
+                editor->readouts[i] = create(L"STATIC", L"", SS_LEFT, FirstCheckId + 200 + static_cast<int>(i),
                     RECT{ x + 104, y + SliderReadoutTop, x + 171, y + SliderReadoutTop + LabelHeight }, 0, option.blankLines);
                 success = editor->labels[i] && editor->controls[i] && editor->readouts[i];
                 if (success)
@@ -493,9 +493,8 @@ namespace
                 success = editor->controls[i] != nullptr;
             }
             if (success)
-                for (HWND control : { editor->controls[i], editor->labels[i], editor->readouts[i] })
-                    if (control && !SetWindowSubclass(control, HintProc, 1, reinterpret_cast<DWORD_PTR>(option.hint)))
-                    { success = false; break; }
+                success = SetWindowSubclass(editor->controls[i], HintProc, 1,
+                    reinterpret_cast<DWORD_PTR>(option.hint)) != FALSE;
         }
         if (success) success = SetWindowPos(editor->group, HWND_BOTTOM, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != FALSE;
