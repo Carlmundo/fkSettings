@@ -33,6 +33,7 @@ extern "C" { int __afxForceUSRDLL; }
 #include "SecretWeapons.h"
 #include "NetworkTeams.h"
 #include "ExtendedOptions.h"
+#include "ColourMaps.h"
 
 #include <sstream>
 #include <fstream>
@@ -602,7 +603,7 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
                     strcpy_s(playButtonText, "Play");
                 }
 
-                const int buttonWidth = (int)round(50 * scale);
+                const int buttonWidth = (int)round(55 * scale);
                 int buttonX = comboRect.right + round(10 * scale);
                 int buttonY = comboRect.top;
                 int buttonHeight = comboRect.Height();
@@ -864,6 +865,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             if (!NetworkTeams::Install())
                 OutputDebugStringA("fkSettings: Network computer teams are unavailable.\n");
         }
+
+        if (!ColourMaps::Install())
+            OutputDebugStringA("fkSettings: Colour map importer is unavailable.\n");
 
         Initialized = true;
 

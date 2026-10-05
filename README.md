@@ -14,3 +14,10 @@ Game options (dialog 154) now includes **Extended Options** with 24 checkboxes
 and three numeric trackbars. Values persist in an appended `.opt` extension, transfer with the
 host's online options, and are written to `Data/extended.dat` for an engine
 extension to consume. See [file offsets and verification](docs/extended-options.md).
+
+The Select Level screen includes **Import map...** for premade indexed-colour
+`.dat` terrains in local and online games, with a colour preview and **Use generated map**
+reset. Maps retain their palettes, collision masks and spawn points without
+locking `land.dat`. Online hosts transfer the map to other players, including
+late joins and subsequent rounds. All players need the updated DLL.
+See [usage and verification](docs/colour-maps.md).

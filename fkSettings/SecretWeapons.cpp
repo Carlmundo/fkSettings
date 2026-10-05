@@ -13,6 +13,7 @@ typedef struct IUnknown IUnknown;
 #include "SecretWeaponsStrings.h"
 #include "NetworkTeams.h"
 #include "ExtendedOptions.h"
+#include "ColourMaps.h"
 
 #pragma comment(lib, "comctl32.lib")
 
@@ -453,6 +454,16 @@ namespace
         return true;
     }
 
+    void SendFinalPacket(void* object, uint32_t source, uint32_t target, bool broadcast, const void* packet, uint32_t length)
+    {
+        if (broadcast) originalSendToAll(object, source, packet, length);
+        else originalSendToPlayer(object, source, target, packet, length);
+    }
+    void SendPlayerPacket(void* object, uint32_t source, uint32_t target, const void* packet, uint32_t length)
+    { ColourMaps::SendNetworkPacket(object, source, target, false, packet, length, SendFinalPacket); }
+    void SendAllPacket(void* object, uint32_t source, const void* packet, uint32_t length)
+    { ColourMaps::SendNetworkPacket(object, source, 0, true, packet, length, SendFinalPacket); }
+
     // Both transports copy the packet before returning, just as they do with
     // the native serializer's stack buffer. Share these detours with network
     // computer teams so weapon schemes, lobby icons and AI launch settings coexist.
@@ -464,15 +475,15 @@ namespace
         NetworkTeams::LobbyPacket lobby;
         ExtendedOptions::Packet options;
         if (ExtendWeaponPacket(packet, length, extended))
-            originalSendToPlayer(object, session, player, extended.data(), static_cast<uint32_t>(extended.size()));
+            SendPlayerPacket(object, session, player, extended.data(), static_cast<uint32_t>(extended.size()));
         else if (ExtendedOptions::ExtendPacket(packet, length, options))
-            originalSendToPlayer(object, session, player, options.data(), static_cast<uint32_t>(options.size()));
+            SendPlayerPacket(object, session, player, options.data(), static_cast<uint32_t>(options.size()));
         else if (NetworkTeams::ExtendStartPacket(packet, length, start))
-            originalSendToPlayer(object, session, player, start.data(), static_cast<uint32_t>(start.size()));
+            SendPlayerPacket(object, session, player, start.data(), static_cast<uint32_t>(start.size()));
         else if (const auto lobbyLength = NetworkTeams::ExtendLobbyPacket(packet, length, lobby))
-            originalSendToPlayer(object, session, player, lobby.data(), lobbyLength);
+            SendPlayerPacket(object, session, player, lobby.data(), lobbyLength);
         else
-            originalSendToPlayer(object, session, player, packet, length);
+            SendPlayerPacket(object, session, player, packet, length);
     }
 
     void __fastcall SendWeaponPacketToAll(void* object, void*, uint32_t session,
@@ -483,15 +494,15 @@ namespace
         NetworkTeams::LobbyPacket lobby;
         ExtendedOptions::Packet options;
         if (ExtendWeaponPacket(packet, length, extended))
-            originalSendToAll(object, session, extended.data(), static_cast<uint32_t>(extended.size()));
+            SendAllPacket(object, session, extended.data(), static_cast<uint32_t>(extended.size()));
         else if (ExtendedOptions::ExtendPacket(packet, length, options))
-            originalSendToAll(object, session, options.data(), static_cast<uint32_t>(options.size()));
+            SendAllPacket(object, session, options.data(), static_cast<uint32_t>(options.size()));
         else if (NetworkTeams::ExtendStartPacket(packet, length, start))
-            originalSendToAll(object, session, start.data(), static_cast<uint32_t>(start.size()));
+            SendAllPacket(object, session, start.data(), static_cast<uint32_t>(start.size()));
         else if (const auto lobbyLength = NetworkTeams::ExtendLobbyPacket(packet, length, lobby))
-            originalSendToAll(object, session, lobby.data(), lobbyLength);
+            SendAllPacket(object, session, lobby.data(), lobbyLength);
         else
-            originalSendToAll(object, session, packet, length);
+            SendAllPacket(object, session, packet, length);
     }
 
     void __fastcall ReceiveWeaponPacket(void* object, void*, uint32_t sender,
@@ -501,8 +512,10 @@ namespace
         // subtracting it from the reported length. Raw receive (0x12b6c) does
         // neither. Bound all extension reads by the actual payload length.
         const bool reliable = *reinterpret_cast<uint32_t*>(image + 0x188b14) == 1;
-        const uint32_t payloadLength = reliable ? (length >= 4 ? length - 4 : 0) : length;
+        uint32_t payloadLength = reliable ? (length >= 4 ? length - 4 : 0) : length;
         const uint32_t host = *reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0x163c);
+        if (!ColourMaps::ReceiveNetworkPacket(sender, host, packet, payloadLength)) return;
+        length = payloadLength + (reliable ? 4 : 0);
         if (!ExtendedOptions::ReceivePacket(sender, host, packet, payloadLength)) return;
         NetworkTeams::ReceiveStartPacket(sender, host, packet, payloadLength);
         uint32_t packetType = 0;
@@ -518,6 +531,7 @@ namespace
                 payloadLength >= ExtendedOptions::NativePacketSize ?
                 static_cast<uint32_t>(ExtendedOptions::NativePacketSize) : length);
             if (lobbySize) NetworkTeams::ReceiveLobbyPacket(object, sender, packet, payloadLength);
+            if (packetType == 5) ColourMaps::JoiningLobby(object);
             return;
         }
         // This lobby dispatcher runs on the UI thread and receives the real

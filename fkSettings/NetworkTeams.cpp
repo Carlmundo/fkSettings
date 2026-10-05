@@ -9,6 +9,7 @@ typedef struct IUnknown IUnknown;
 #include <new>
 #include "include/MinHook.h"
 #include "NetworkTeams.h"
+#include "ColourMaps.h"
 
 namespace NetworkTeams
 {
@@ -352,8 +353,11 @@ namespace
         // constructor resolves the host player ID into +0xa8. Refresh the AI
         // settings before the native start handler writes the next game.dat.
         const bool reliable = *reinterpret_cast<uint32_t*>(image + 0x188b14) == 1;
-        const uint32_t payloadLength = reliable ? (length >= 4 ? length - 4 : 0) : length;
+        uint32_t payloadLength = reliable ? (length >= 4 ? length - 4 : 0) : length;
         const uint32_t host = *reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0xa8);
+        if (host && sender == host && payloadLength >= 4) ColourMaps::JoiningRound(object);
+        if (!ColourMaps::ReceiveNetworkPacket(sender, host, packet, payloadLength)) return;
+        length = payloadLength + (reliable ? 4 : 0);
         ReceiveStartPacket(sender, host, packet, payloadLength);
         if (IsStartPacket(packet, payloadLength) && payloadLength < NativeStartPacketSize) return;
         originalReceiveRoundPacket(object, sender, packet, length);

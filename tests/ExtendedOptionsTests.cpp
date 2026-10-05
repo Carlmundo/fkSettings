@@ -2,6 +2,8 @@
 #include <stdexcept>
 #include "../fkSettings/ExtendedOptions.cpp"
 #include "../fkSettings/SecretWeapons.cpp"
+#include "../fkSettings/ColourMaps.cpp"
+#include "../fkSettings/NetworkTeams.cpp"
 
 namespace EO = ExtendedOptions;
 namespace SW = SecretWeapons;
@@ -1254,6 +1256,8 @@ static void HookTests(const char* path)
                 "signature rejection leaves all extended hook sites untouched");
     }
     Check(EO::InstallInImage(frontend), "install all sixteen extended option hooks on supplied frontend");
+    Check(NetworkTeams::InstallInImage(frontend), "install network-team hooks alongside extended options");
+    Check(ColourMaps::InstallInImage(frontend), "colour map hooks coexist with shared and extended option hooks");
     for (size_t i = 0; i < sites.size(); ++i)
         Check(memcmp(before[i].data(), frontend + sites[i], before[i].size()) != 0, "extended hook enabled");
     RepeatSwingsTests(frontend, path);
@@ -1277,6 +1281,11 @@ int main(int argc, char** argv)
         SW::originalRead = Read;
         SW::originalWrite = Write;
         Check(argc > 1, "supply frontend path for real resource/hook validation");
+        if (argc > 2 && strcmp(argv[2], "--hooks-only") == 0)
+        {
+            HookTests(argv[1]);
+            return 0;
+        }
         LanguageTests(argv[1]);
         SchemeTests();
         LaunchTests();

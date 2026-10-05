@@ -7,11 +7,11 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration"><ConfigurationType>Application</ConfigurationType><PlatformToolset>v143</PlatformToolset></PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <PropertyGroup><OutDir>$(ProjectDir)..\Release\</OutDir><IntDir>$(ProjectDir)Release\ExtendedOptions\</IntDir></PropertyGroup>
+  <PropertyGroup><OutDir>$(ProjectDir)..\Release\</OutDir><IntDir>$(ProjectDir)Release\ColourMaps\</IntDir></PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile><LanguageStandard>stdcpp20</LanguageStandard><WarningLevel>Level4</WarningLevel><PreprocessorDefinitions>_WIN32_WINNT=0x0601;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
-    <Link><AdditionalDependencies>user32.lib;gdi32.lib;$(ProjectDir)..\fkSettings\libs\libMinHook.x86.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+    <Link><AdditionalDependencies>user32.lib;gdi32.lib;comctl32.lib;comdlg32.lib;$(ProjectDir)..\fkSettings\libs\libMinHook.x86.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="ExtendedOptionsTests.cpp" /></ItemGroup>
+  <ItemGroup><ClCompile Include="ColourMapsTests.cpp" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
