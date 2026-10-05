@@ -163,7 +163,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="CDButton.h" />
     <ClInclude Include="Hooks.h" />
     <ClInclude Include="SecretWeapons.h" />
     <ClInclude Include="SecretWeaponsStrings.h" />
@@ -173,7 +172,6 @@
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="CDButton.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="Hooks.cpp" />
     <ClCompile Include="SecretWeapons.cpp" />

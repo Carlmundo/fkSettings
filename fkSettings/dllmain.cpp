@@ -36,7 +36,6 @@ extern "C" { int __afxForceUSRDLL; }
 
 #include <sstream>
 #include <fstream>
-//#include "CDButton.h" //Hints
 
 #pragma comment(lib,"user32.lib") 
 #pragma comment(lib,"libs\\libMinHook.x86.lib")
@@ -261,8 +260,6 @@ void HandleButtonClick(HWND hWnd)
 //The pointer to the original window message processing function
 WNDPROC ogVideoOptWndProc = nullptr;
 
-CWnd* hint;
-
 //Soundbank Play button related
 #define SPEECH_PLAY_BUTTON_ID 50001
 HWND speechComboBoxHwnd = nullptr;
@@ -456,18 +453,6 @@ CreateDialogIndirectParamAType pCreateDialogIndirectParamA = nullptr; //original
 CreateDialogIndirectParamAType pCreateDialogIndirectParamATarget; //original function pointer BEFORE hook do not call this!
 HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATEA lpTemplate, HWND hWndParent, DLGPROC lpDialogFunc, LPARAM dwInitParam) {
     auto returnVal = pCreateDialogIndirectParamA(hInstance, lpTemplate, hWndParent, lpDialogFunc, dwInitParam);
-
-    //Custom hints are unused for now
-    //if (hint == NULL && hWndParent != NULL)
-    //{
-    //    CWnd* parent = CWnd::FromHandle(hWndParent);
-
-    //    if (parent->GetParent())
-    //    {
-    //        hint = parent->GetParent()->GetDlgItem(1003);
-    //        //advancedOptionsBtn.hintObject = hint;
-    //    }
-    //}
 
     if (returnVal != NULL) {
 
@@ -707,7 +692,6 @@ void AssignLabels()
     if (lang == "en")
     {
         advancedOptionsLabel = _TEXT("Advanced options");
-        //advancedOptionsBtn.hintText = _TEXT("\nChange advanced graphic settings such as resolution or the renderer");
     }
     else if (lang == "pl")
     {
