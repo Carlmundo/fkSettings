@@ -164,6 +164,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Hooks.h" />
+    <ClInclude Include="WaterFix.h" />
     <ClInclude Include="SecretWeapons.h" />
     <ClInclude Include="SecretWeaponsStrings.h" />
     <ClInclude Include="ExtendedOptions.h" />
@@ -174,6 +175,7 @@
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="Hooks.cpp" />
+    <ClCompile Include="WaterFix.cpp" />
     <ClCompile Include="SecretWeapons.cpp" />
     <ClCompile Include="ExtendedOptions.cpp" />
     <ClCompile Include="NetworkTeams.cpp" />

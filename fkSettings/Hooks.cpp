@@ -78,7 +78,7 @@ static bool ParsePattern(const char* pattern, std::vector<int>& bytes)
 	return !bytes.empty();
 }
 
-static DWORD FindPattern(const char* pattern)
+static DWORD FindPattern(const char* pattern, HMODULE module)
 {
 	std::vector<int> patternBytes;
 
@@ -87,7 +87,7 @@ static DWORD FindPattern(const char* pattern)
 
 	BYTE* image =
 		reinterpret_cast<BYTE*>(
-			GetModuleHandleA(NULL)
+			module ? module : GetModuleHandleA(NULL)
 			);
 
 	if (!image)
@@ -307,8 +307,8 @@ DWORD Hooks::scanPattern(const char* name, const char* pattern, const char* mask
 }
 */
 
-DWORD Hooks::scanPattern2(const char* name, const char* pattern, DWORD expected) {
-	DWORD address = FindPattern(pattern);
+DWORD Hooks::scanPattern2(const char* name, const char* pattern, DWORD expected, HMODULE module) {
+	DWORD address = FindPattern(pattern, module);
 	if (!address) {
 		char buffer[512];
 		sprintf_s(buffer, "fkSettings: pattern not found: %s\n", name ? name : "(unnamed)");

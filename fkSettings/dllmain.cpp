@@ -33,6 +33,7 @@ extern "C" { int __afxForceUSRDLL; }
 #include "SecretWeapons.h"
 #include "NetworkTeams.h"
 #include "ExtendedOptions.h"
+#include "WaterFix.h"
 
 #include <sstream>
 #include <fstream>
@@ -838,6 +839,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         //ObtainWeaponParamIDAddrRet = CFromViewGetDlgItemCall + 8;
 
 		//Hooks::hookAsm(CFromViewGetDlgItemCall, (DWORD)ObtainWeaponParamID);
+
+        if (!WaterFix::Install())
+            OutputDebugStringA("fkSettings: water colour preview fix is unavailable.\n");
 
         if (!SecretWeapons::Install())
             OutputDebugStringA("fkSettings: Secret weapon editor is unavailable.\n");

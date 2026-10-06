@@ -3,6 +3,7 @@ Test all of the following with a modern OS and Windows XP.
 - [ ] Main Menu: Confirm the Exit button is correctly positioned, fully visible, and clickable at high DPI.
 - [ ] Hint text: Confirm hints are readable and do not overlap or get clipped at 200% scaling.
 - [ ] Video Options: Confirm the Advanced Options button appears when settings.exe is present, scales correctly, and launches it when clicked.
+- [ ] Terrain editor — water preview: With `W2PATH` set to `.` in `HKEY_CURRENT_USER\Software\Team17SoftwareLTD\Worms2`, load the combined `fkSettings.dll` without the old standalone `fkWaterFix.dll`. Open the Terrain editor, change water colours and reopen it several times. Confirm correct previews, normal terrain loading/saving, and working frontend controls. Repeat with an absolute `W2PATH` and on Windows XP.
 - [ ] Music Options: Confirm track names and list rows remain readable, correctly spaced, and selectable at high DPI.
 - [ ] Team Editor: Confirm the Play button previews random samples from the selected soundbank. Click it several times and repeat with different soundbanks.
 - [ ] Weapon Editor: Confirm Tab and Shift+Tab move through controls in a logical order, including secret weapon controls.
