@@ -648,11 +648,13 @@ bool InstallInImage(BYTE* frontendImage)
     bool success = created == hookCount;
     if (success)
         for (const auto& hook : hooks)
-            if (MH_EnableHook(image + hook.rva) != MH_OK)
+            if (MH_QueueEnableHook(image + hook.rva) != MH_OK)
             {
                 success = false;
                 break;
             }
+    if (success)
+        success = MH_ApplyQueued() == MH_OK;
     if (!success)
         for (size_t i = 0; i < created; ++i)
         {

@@ -19,3 +19,6 @@ Game options (dialog 154) now includes **Extended Options** with 24 checkboxes
 and three numeric trackbars. Values persist in an appended `.opt` extension, transfer with the
 host's online options, and are written to `Data/extended.dat` for an engine
 extension to consume. See [file offsets and verification](docs/extended-options.md).
+
+Startup hooks are activated in batches to avoid repeated thread suspension.
+See [startup timing and verification](docs/startup-performance.md).

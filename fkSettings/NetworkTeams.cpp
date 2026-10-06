@@ -415,11 +415,12 @@ namespace
         bool success = created == sizeof(hooks) / sizeof(hooks[0]);
         if (success)
             for (const auto& hook : hooks)
-                if (MH_EnableHook(image + hook.rva) != MH_OK)
+                if (MH_QueueEnableHook(image + hook.rva) != MH_OK)
                 {
                     success = false;
                     break;
                 }
+        if (success) success = MH_ApplyQueued() == MH_OK;
         if (!success || !SetHostListMode(1))
         {
             for (size_t i = 0; i < created; ++i)

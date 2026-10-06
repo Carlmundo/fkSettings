@@ -122,6 +122,7 @@ namespace
     CreatePage originalCreatePage = nullptr;
     SetScrollSizes setScrollSizes = nullptr;
     MarkEdited markEdited = nullptr;
+    MarkEdited originalLoadDefaultOptions = nullptr;
     Open originalOpen = nullptr;
     Close originalClose = nullptr;
     ScanSchemes originalScanSchemes = nullptr;
@@ -264,8 +265,15 @@ namespace
         RefreshEditors();
     }
 
-    // Native defaults are inlined copies at nine verified sites, including the
-    // dropdown, Default button, editor construction and local/network setup.
+    void __fastcall LoadDefaultOptions(void* object, void*)
+    {
+        originalLoadDefaultOptions(object);
+        ResetDefault();
+    }
+
+    // Native defaults also use inlined copies at nine verified sites, including
+    // the dropdown, editor construction and local/network setup. The Default
+    // button uses the shared LoadDefaultOptions routine above.
     // Preserve every register and flags before continuing the original copy.
 #define DEFAULT_DETOUR(N, OFFSET) \
     __declspec(naked) void Default##N() \
@@ -612,6 +620,7 @@ namespace
             { 0x580f9, "\x68\x9e\x00\x00\x00", 5, reinterpret_cast<void*>(SpecialSliderString), nullptr },
             { 0x592b6, "\xe8\xde\x9d\xfa\xff", 5, reinterpret_cast<void*>(SaveRepeatSwings), nullptr },
             { 0x1e6fe, "\x55\x8b\xec\x6a\xff\x68", 6, reinterpret_cast<void*>(ScanOptionSchemes), reinterpret_cast<void**>(&originalScanSchemes) },
+            { 0x1e22b, "\x55\x8b\xec\x51\x89\x4d\xfc\x68\x80\x00\x00\x00", 12, reinterpret_cast<void*>(LoadDefaultOptions), reinterpret_cast<void**>(&originalLoadDefaultOptions) },
         };
         const size_t defaultSites[] = { 0x9cdc, 0x9ff8, 0xa5d4, 0x31cd9, 0x392c0, 0x586a3, 0x5899e, 0x59611, 0x59e3d };
         void* detours[] = { Default0, Default1, Default2, Default3, Default4, Default5, Default6, Default7, Default8 };
@@ -656,7 +665,8 @@ namespace
         markEdited = reinterpret_cast<MarkEdited>(image + 0x57e6f);
         if (success)
             for (void* target : created)
-                if (MH_EnableHook(target) != MH_OK) { success = false; break; }
+                if (MH_QueueEnableHook(target) != MH_OK) { success = false; break; }
+        if (success) success = MH_ApplyQueued() == MH_OK;
         if (!success)
             for (void* target : created) { MH_DisableHook(target); MH_RemoveHook(target); }
         enabled = success;

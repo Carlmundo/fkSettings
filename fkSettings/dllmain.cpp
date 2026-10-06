@@ -797,7 +797,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             return 1;
         }
 
-        if (MH_EnableHook(reinterpret_cast<void**>(pCreateDialogIndirectParamATarget)) != MH_OK) {
+        if (MH_QueueEnableHook(pCreateDialogIndirectParamATarget) != MH_OK) {
             shutdown();
             return 1;
         }
@@ -807,7 +807,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             return 1;
         }
 
-        if (MH_EnableHook(reinterpret_cast<void**>(pFindResourceATarget)) != MH_OK) {
+        if (MH_QueueEnableHook(pFindResourceATarget) != MH_OK) {
             shutdown();
             return 1;
         }
@@ -817,7 +817,13 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             return 1;
         }
 
-        if (MH_EnableHook(reinterpret_cast<void**>(pTextOutATarget)) != MH_OK) {
+        if (MH_QueueEnableHook(pTextOutATarget) != MH_OK) {
+            shutdown();
+            return 1;
+        }
+
+        // Activate the three API detours with a single thread freeze/resume.
+        if (MH_ApplyQueued() != MH_OK) {
             shutdown();
             return 1;
         }

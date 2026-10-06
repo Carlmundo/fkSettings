@@ -1202,6 +1202,136 @@ static void SchemeDiscoveryTests(BYTE* frontend)
     puts("PASS: actual native scheme scanner lists all .opt sizes in both fresh dropdowns, including over 200 bytes, and preserves extended values");
 }
 
+static HWND defaultDialog;
+static void* defaultDialogObject;
+static EO::MarkEdited nativeDefaultButton;
+static int defaultClicks;
+static std::array<BYTE, 0x40> defaultControl{};
+static INT_PTR CALLBACK DefaultDialogProc(HWND, UINT message, WPARAM wParam, LPARAM)
+{
+    if (message == WM_COMMAND && LOWORD(wParam) == 2102 && HIWORD(wParam) == BN_CLICKED)
+    {
+        ++defaultClicks;
+        nativeDefaultButton(defaultDialogObject);
+        return TRUE;
+    }
+    return FALSE;
+}
+static void* __fastcall DefaultGetControl(void*, void*, int id)
+{
+    *reinterpret_cast<HWND*>(defaultControl.data() + 0x1c) = GetDlgItem(defaultDialog, id);
+    return defaultControl.data();
+}
+static BOOL __fastcall DefaultIsEnabled(BYTE* object, void*)
+{ return IsWindowEnabled(*reinterpret_cast<HWND*>(object + 0x1c)); }
+static BOOL __fastcall DefaultEnable(BYTE* object, void*, BOOL enable)
+{ return EnableWindow(*reinterpret_cast<HWND*>(object + 0x1c), enable); }
+static int __fastcall DefaultFindScheme(BYTE* object, void*, int start, const char* text)
+{ return static_cast<int>(SendMessageA(*reinterpret_cast<HWND*>(object + 0x1c), CB_FINDSTRINGEXACT, start, reinterpret_cast<LPARAM>(text))); }
+static int __fastcall DefaultSelectScheme(BYTE* object, void*, int index)
+{ return static_cast<int>(SendMessageA(*reinterpret_cast<HWND*>(object + 0x1c), CB_SETCURSEL, index, 0)); }
+static void __fastcall DefaultRefreshNative(void*, void*) {}
+static void* __cdecl DefaultMainWindow() { return defaultControl.data(); }
+static void* __cdecl DefaultCopy(void* destination, const void* source, size_t size)
+{ return memcpy(destination, source, size); }
+static void PrivatePointer(BYTE* target, const void* pointer)
+{
+    DWORD old;
+    Check(VirtualProtect(target, 4, PAGE_EXECUTE_READWRITE, &old) != FALSE, "relocate private Default button operand");
+    *reinterpret_cast<const void**>(target) = pointer;
+    VirtualProtect(target, 4, old, &old);
+}
+static void DefaultButtonTests(BYTE* frontend, const char* path)
+{
+    // Run the actual Default button method, not ResetDefault directly. MFC/CRT
+    // dependencies are adapted to real dialog controls in this private image.
+    repeatResources = LoadLibraryExA(path, nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    const auto layout = [&](int id) {
+        HRSRC resource = FindResourceW(repeatResources, MAKEINTRESOURCEW(id), MAKEINTRESOURCEW(5));
+        Check(resource != nullptr, "load real options dialog resource");
+        return static_cast<const DLGTEMPLATE*>(LockResource(LoadResource(repeatResources, resource)));
+    };
+    HWND root = CreateWindowW(L"STATIC", L"Default button fixture", WS_OVERLAPPEDWINDOW,
+        0, 0, 700, 500, nullptr, nullptr, nullptr, nullptr);
+    defaultDialog = CreateDialogIndirectParamW(repeatResources, layout(155), root, DefaultDialogProc, 0);
+    HWND form = CreateDialogIndirectParamW(repeatResources, layout(154), defaultDialog, DialogProc, 0);
+    Check(defaultDialog && form && GetDlgItem(defaultDialog, 2102), "create real Default button and options form");
+    std::array<BYTE, 0x200> mainObject{};
+    *reinterpret_cast<HWND*>(mainObject.data() + 0x13c + 0x1c) = GetDlgItem(defaultDialog, 2102);
+    *reinterpret_cast<HWND*>(mainObject.data() + 0x188 + 0x1c) = GetDlgItem(defaultDialog, 2121);
+    defaultDialogObject = mainObject.data();
+    nativeDefaultButton = reinterpret_cast<EO::MarkEdited>(frontend + 0x5968f);
+    defaultClicks = 0;
+    PatchPrivateCode(frontend + 0x96980, reinterpret_cast<void*>(DefaultCopy));
+    PatchPrivateCode(frontend + 0x1a28, reinterpret_cast<void*>(DefaultRefreshNative));
+    PatchPrivateCode(frontend + 0xc47a6, reinterpret_cast<void*>(DefaultGetControl));
+    PatchPrivateCode(frontend + 0xc4bb5, reinterpret_cast<void*>(DefaultIsEnabled));
+    PatchPrivateCode(frontend + 0xc4bd0, reinterpret_cast<void*>(DefaultEnable));
+    PatchPrivateCode(frontend + 0x3878, reinterpret_cast<void*>(DefaultFindScheme));
+    PatchPrivateCode(frontend + 0x36e3, reinterpret_cast<void*>(DefaultSelectScheme));
+    PatchPrivateCode(frontend + 0x3cf6, reinterpret_cast<void*>(DefaultMainWindow));
+    PrivatePointer(frontend + 0x5969b, frontend + 0x186354);
+    PrivatePointer(frontend + 0x596a5, frontend + 0x176a40);
+    PrivatePointer(frontend + 0x596b0, frontend + 0x18645f);
+    PrivatePointer(frontend + 0x59742, frontend + 0x186354);
+    PrivatePointer(frontend + 0x5973d, frontend + 0x1bc550);
+    PrivatePointer(frontend + 0x1bc550, reinterpret_cast<void*>(SendMessageA));
+    DWORD old;
+    Check(VirtualProtect(frontend + 0x186354, 0x110, PAGE_READWRITE, &old) != FALSE, "initialize private native defaults");
+    NativeStringCtor(reinterpret_cast<void**>(frontend + 0x186354), nullptr);
+    std::array<BYTE, 128> defaults{};
+    for (size_t i = 0; i < defaults.size(); ++i) defaults[i] = static_cast<BYTE>(i ^ 0x39);
+    memcpy(frontend + 0x186358, defaults.data(), defaults.size());
+    char defaultName[256]{};
+    Check(LoadStringA(repeatResources, 99, defaultName, sizeof(defaultName)) != 0, "load native Default scheme name");
+    HWND combo = GetDlgItem(defaultDialog, 2121);
+    SendMessageA(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(defaultName));
+    SendMessageA(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>("Edited scheme"));
+    std::array<BYTE, 0xa0> pageObject{};
+    *reinterpret_cast<HWND*>(pageObject.data() + 0x1c) = form;
+    RECT native{ 0, 0, 386, 468 };
+    MapDialogRect(form, &native);
+    *reinterpret_cast<SIZE*>(pageObject.data() + 0x44) = { native.right, native.bottom };
+    EO::setScrollSizes = reinterpret_cast<EO::SetScrollSizes>(Scroll);
+    EO::markEdited = reinterpret_cast<EO::MarkEdited>(Mark);
+    EO::SetLanguage("en");
+    Check(EO::AttachEditor(pageObject.data()), "attach extended controls for native Default button regression");
+    auto editor = static_cast<EO::Editor*>(GetPropW(form, EO::ContextProperty));
+    for (int click = 0; click < 2; ++click)
+    {
+        EO::values = Pattern(EO::OptionCount);
+        EO::RefreshEditors();
+        memset(frontend + EO::OptionsRva, 0xcd, 128);
+        frontend[0x18645f] = 1;
+        SendMessageA(combo, CB_SETCURSEL, 1, 0);
+        EnableWindow(GetDlgItem(defaultDialog, 2102), TRUE);
+        EnableWindow(GetDlgItem(defaultDialog, 2120), TRUE);
+        EnableWindow(GetDlgItem(defaultDialog, 2235), TRUE);
+        SendMessageW(GetDlgItem(defaultDialog, 2102), BM_CLICK, 0, 0);
+        Check(defaultClicks == click + 1 && EO::values == Pattern(EO::OptionCount + 1),
+            "actual Default button path clears all extended values");
+        Check(memcmp(frontend + EO::OptionsRva, defaults.data(), defaults.size()) == 0 && frontend[0x18645f] == 0,
+            "native Default copy and modified flag retain their original behavior");
+        Check(SendMessageA(combo, CB_GETCURSEL, 0, 0) == 0 && !IsWindowEnabled(GetDlgItem(defaultDialog, 2102)),
+            "native Default button selects Default and disables itself");
+        for (const auto& option : EO::Options)
+        {
+            const size_t i = EO::ToIndex(option.index);
+            Check(option.IsSlider() ? SendMessageW(editor->controls[i], TBM_GETPOS, 0, 0) == 0 :
+                SendMessageW(editor->controls[i], BM_GETCHECK, 0, 0) == BST_UNCHECKED,
+                "native Default button refreshes all visible extended controls to zero");
+            if (option.IsSlider()) Check(EO::WindowText(editor->readouts[i]) == EO::ValueText(option),
+                "native Default button restores special zero captions");
+        }
+    }
+    DestroyWindow(root);
+    NativeStringDtor(reinterpret_cast<void**>(frontend + 0x186354), nullptr);
+    VirtualProtect(frontend + 0x186354, 0x110, old, &old);
+    FreeLibrary(repeatResources);
+    Check(EO::editors.empty() && liveNativeStrings == 0, "Default fixture releases editor and native strings");
+    puts("PASS: real Default button notification runs native method and resets native/extended values, controls and scheme selection");
+}
+
 static void HookTests(const char* path)
 {
     HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
@@ -1209,8 +1339,8 @@ static void HookTests(const char* path)
     HANDLE mapping = CreateFileMappingW(file, nullptr, PAGE_READONLY | SEC_IMAGE, 0, 0, nullptr);
     BYTE* frontend = static_cast<BYTE*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
     Check(frontend != nullptr, "map frontend without running it");
-    const std::array<size_t, 16> sites{ 0x57d20, 0x97780, 0x97500, 0x9cdc, 0x9ff8, 0xa5d4,
-        0x31cd9, 0x392c0, 0x586a3, 0x5899e, 0x59611, 0x59e3d, 0x580de, 0x580f9, 0x592b6, 0x1e6fe };
+    const std::array<size_t, 17> sites{ 0x57d20, 0x97780, 0x97500, 0x9cdc, 0x9ff8, 0xa5d4,
+        0x31cd9, 0x392c0, 0x586a3, 0x5899e, 0x59611, 0x59e3d, 0x580de, 0x580f9, 0x592b6, 0x1e6fe, 0x1e22b };
     // SEC_IMAGE does not run loader relocations; relocate the inspected operands
     // in this private mapping exactly as a relocated executable's loader would.
     for (size_t i = 3; i < 12; ++i)
@@ -1225,11 +1355,11 @@ static void HookTests(const char* path)
     VirtualProtect(frontend + 0x592aa, 4, PAGE_EXECUTE_READWRITE, &operandOld);
     *reinterpret_cast<uint32_t*>(frontend + 0x592aa) = reinterpret_cast<uint32_t>(frontend + 0x18640c);
     VirtualProtect(frontend + 0x592aa, 4, operandOld, &operandOld);
-    std::array<std::array<BYTE, 17>, 16> before{};
+    std::array<std::array<BYTE, 17>, 17> before{};
     for (size_t i = 0; i < sites.size(); ++i) memcpy(before[i].data(), frontend + sites[i], before[i].size());
     Check(MH_Initialize() == MH_OK, "initialize MinHook");
     Check(SW::InstallInImage(frontend), "install shared CRT/network hooks");
-    for (size_t corrupted : { 11u, 12u, 13u, 14u, 15u })
+    for (size_t corrupted : { 11u, 12u, 13u, 14u, 15u, 16u })
     {
         DWORD old;
         VirtualProtect(frontend + sites[corrupted], 17, PAGE_EXECUTE_READWRITE, &old);
@@ -1241,11 +1371,12 @@ static void HookTests(const char* path)
             Check(memcmp(before[i].data(), frontend + sites[i], before[i].size()) == 0,
                 "signature rejection leaves all extended hook sites untouched");
     }
-    Check(EO::InstallInImage(frontend), "install all sixteen extended option hooks on supplied frontend");
+    Check(EO::InstallInImage(frontend), "install all seventeen extended option hooks on supplied frontend");
     for (size_t i = 0; i < sites.size(); ++i)
         Check(memcmp(before[i].data(), frontend + sites[i], before[i].size()) != 0, "extended hook enabled");
     RepeatSwingsTests(frontend, path);
     SchemeDiscoveryTests(frontend);
+    DefaultButtonTests(frontend, path);
     Check(MH_Uninitialize() == MH_OK, "remove hooks");
     for (size_t i = 0; i < sites.size(); ++i)
         Check(memcmp(before[i].data(), frontend + sites[i], before[i].size()) == 0, "original code restored");
