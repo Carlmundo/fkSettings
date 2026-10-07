@@ -18,6 +18,9 @@
     <ClInclude Include="CDButton.h">
       <Filter>Headers</Filter>
     </ClInclude>
+    <ClInclude Include="WaterFix.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
     <ClInclude Include="Hooks.h">
       <Filter>Headers</Filter>
     </ClInclude>
@@ -47,6 +50,9 @@
     </ClCompile>
     <ClCompile Include="ColourMaps.cpp"><Filter>Code</Filter></ClCompile>
     <ClCompile Include="dllmain.cpp">
+      <Filter>Code</Filter>
+    </ClCompile>
+    <ClCompile Include="WaterFix.cpp">
       <Filter>Code</Filter>
     </ClCompile>
     <ClCompile Include="Hooks.cpp">

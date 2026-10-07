@@ -34,10 +34,10 @@ extern "C" { int __afxForceUSRDLL; }
 #include "NetworkTeams.h"
 #include "ExtendedOptions.h"
 #include "ColourMaps.h"
+#include "WaterFix.h"
 
 #include <sstream>
 #include <fstream>
-//#include "CDButton.h" //Hints
 
 #pragma comment(lib,"user32.lib") 
 #pragma comment(lib,"libs\\libMinHook.x86.lib")
@@ -262,8 +262,6 @@ void HandleButtonClick(HWND hWnd)
 //The pointer to the original window message processing function
 WNDPROC ogVideoOptWndProc = nullptr;
 
-CWnd* hint;
-
 //Soundbank Play button related
 #define SPEECH_PLAY_BUTTON_ID 50001
 HWND speechComboBoxHwnd = nullptr;
@@ -458,18 +456,6 @@ CreateDialogIndirectParamAType pCreateDialogIndirectParamATarget; //original fun
 HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATEA lpTemplate, HWND hWndParent, DLGPROC lpDialogFunc, LPARAM dwInitParam) {
     auto returnVal = pCreateDialogIndirectParamA(hInstance, lpTemplate, hWndParent, lpDialogFunc, dwInitParam);
 
-    //Custom hints are unused for now
-    //if (hint == NULL && hWndParent != NULL)
-    //{
-    //    CWnd* parent = CWnd::FromHandle(hWndParent);
-
-    //    if (parent->GetParent())
-    //    {
-    //        hint = parent->GetParent()->GetDlgItem(1003);
-    //        //advancedOptionsBtn.hintObject = hint;
-    //    }
-    //}
-
     if (returnVal != NULL) {
 
         CWnd* pWnd = CWnd::FromHandle(returnVal);
@@ -603,7 +589,7 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
                     strcpy_s(playButtonText, "Play");
                 }
 
-                const int buttonWidth = (int)round(55 * scale);
+                const int buttonWidth = (int)round(56 * scale);
                 int buttonX = comboRect.right + round(10 * scale);
                 int buttonY = comboRect.top;
                 int buttonHeight = comboRect.Height();
@@ -708,7 +694,6 @@ void AssignLabels()
     if (lang == "en")
     {
         advancedOptionsLabel = _TEXT("Advanced options");
-        //advancedOptionsBtn.hintText = _TEXT("\nChange advanced graphic settings such as resolution or the renderer");
     }
     else if (lang == "pl")
     {
@@ -813,7 +798,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             return 1;
         }
 
-        if (MH_EnableHook(reinterpret_cast<void**>(pCreateDialogIndirectParamATarget)) != MH_OK) {
+        if (MH_QueueEnableHook(pCreateDialogIndirectParamATarget) != MH_OK) {
             shutdown();
             return 1;
         }
@@ -823,7 +808,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             return 1;
         }
 
-        if (MH_EnableHook(reinterpret_cast<void**>(pFindResourceATarget)) != MH_OK) {
+        if (MH_QueueEnableHook(pFindResourceATarget) != MH_OK) {
             shutdown();
             return 1;
         }
@@ -833,7 +818,13 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             return 1;
         }
 
-        if (MH_EnableHook(reinterpret_cast<void**>(pTextOutATarget)) != MH_OK) {
+        if (MH_QueueEnableHook(pTextOutATarget) != MH_OK) {
+            shutdown();
+            return 1;
+        }
+
+        // Activate the three API detours with a single thread freeze/resume.
+        if (MH_ApplyQueued() != MH_OK) {
             shutdown();
             return 1;
         }
@@ -855,6 +846,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         //ObtainWeaponParamIDAddrRet = CFromViewGetDlgItemCall + 8;
 
 		//Hooks::hookAsm(CFromViewGetDlgItemCall, (DWORD)ObtainWeaponParamID);
+
+        if (!WaterFix::Install())
+            OutputDebugStringA("fkSettings: water colour preview fix is unavailable.\n");
 
         if (!SecretWeapons::Install())
             OutputDebugStringA("fkSettings: Secret weapon editor is unavailable.\n");

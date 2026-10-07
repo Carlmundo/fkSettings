@@ -37,6 +37,6 @@ public:
 	static void patchAsm(DWORD addr, unsigned char* op, size_t opsize);
 
 	//static DWORD scanPattern(const char* name, const char* pattern, const char* mask, DWORD expected = 0);
-	static DWORD scanPattern2(const char* name, const char* pattern, DWORD expected = 0);
+	static DWORD scanPattern2(const char* name, const char* pattern, DWORD expected = 0, HMODULE module = nullptr);
 };
 

@@ -180,6 +180,7 @@ feature.
 | `0xCF5B5` | Native scroll sizing (called, not hooked) |
 | `0x97780` / `0x97500` | Native CRT open/close hooks for launch stream tracking |
 | `0x1E6FE` | Native scheme discovery; remove the size filter for `*.opt` file scans |
+| `0x1E22B` | Shared native option-default loader used by the Default button; clear extended values and refresh editors after the native copy |
 | `0x1863D8` | Native 128-byte option payload |
 | `0x186354` | Native option scheme name (`CString`) |
 | `0x9CDC`, `0x9FF8`, `0xA5D4`, `0x31CD9`, `0x392C0`, `0x586A3`, `0x5899E`, `0x59611`, `0x59E3D` | Native default option copies |
@@ -261,7 +262,10 @@ localized endpoint labels, scheme reload/Default refresh, nested forward
 and reverse Windows tab traversal,
 scroll sizing and destruction. Private executable mappings validate coexistence
 with the shared hooks, signature rejection and installation/removal of all
-sixteen detours. The actual directory scanner is exercised through its hook and
+seventeen detours. A click on the real Default button runs the native button
+method in the private image, verifying its shared default loader resets native
+and extended values, checkbox/slider states, zero captions and scheme selection.
+The actual directory scanner is exercised through its hook and
 trampoline with real files and combo boxes, covering fresh scans of both lists,
 case-insensitive `.opt` patterns, files larger than 200 bytes, other extensions,
 directory exclusion and subsequent loading of discovered extended schemes.

@@ -58,7 +58,6 @@ namespace SecretWeapons
             break;
 
         case 2: // en
-        case 14: // zh-Hans
         default: // Unknown or missing language uses English.
             strings.strSalvationArmy = L"Salvation Army";
             strings.strMBBomb = L"MB Bomb";
@@ -189,6 +188,16 @@ namespace SecretWeapons
             strings.strConcreteDonkey = L"Betong Åsna";
             strings.strNuclearBomb = L"Atom Bomb";
             strings.strMagicBullet = L"Magisk Kula";
+            break;
+        case 14: // zh-Hans
+            strings.strSalvationArmy = L"救世军";
+            strings.strMBBomb = L"MB炸弹";
+            strings.strSheepStrike = L"绵羊空袭";
+            strings.strCarpetBomb = L"地毯式轰炸";
+            strings.strClonedSheep = L"克隆绵羊";
+            strings.strConcreteDonkey = L"混凝土大笨驴";
+            strings.strNuclearBomb = L"核弹";
+            strings.strMagicBullet = L"魔术子弹";
             break;
 
         }

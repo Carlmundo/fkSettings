@@ -51,98 +51,67 @@ static bool ParsePattern(const char* pattern, std::vector<int>& bytes)
 		if (*p == '?')
 		{
 			bytes.push_back(-1);
-
 			++p;
-
 			if (*p == '?')
 				++p;
-
 			continue;
 		}
 
 		int high = HexNibble(p[0]);
-
 		if (high < 0 || !p[1])
 			return false;
 
 		int low = HexNibble(p[1]);
-
 		if (low < 0)
 			return false;
 
 		bytes.push_back((high << 4) | low);
-
 		p += 2;
 	}
 
 	return !bytes.empty();
 }
 
-static DWORD FindPattern(const char* pattern)
+static DWORD FindPattern(const char* pattern, HMODULE module)
 {
 	std::vector<int> patternBytes;
-
 	if (!ParsePattern(pattern, patternBytes))
 		return 0;
 
-	BYTE* image =
-		reinterpret_cast<BYTE*>(
-			GetModuleHandleA(NULL)
-			);
-
+	BYTE* image = reinterpret_cast<BYTE*>(module ? module : GetModuleHandleA(NULL));
 	if (!image)
 		return 0;
 
-	IMAGE_DOS_HEADER* dos =
-		reinterpret_cast<IMAGE_DOS_HEADER*>(image);
-
+	IMAGE_DOS_HEADER* dos =	reinterpret_cast<IMAGE_DOS_HEADER*>(image);
 	if (dos->e_magic != IMAGE_DOS_SIGNATURE)
 		return 0;
 
-	IMAGE_NT_HEADERS* nt =
-		reinterpret_cast<IMAGE_NT_HEADERS*>(
-			image + dos->e_lfanew
-			);
-
+	IMAGE_NT_HEADERS* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(image + dos->e_lfanew);
 	if (nt->Signature != IMAGE_NT_SIGNATURE)
 		return 0;
 
-	IMAGE_SECTION_HEADER* section =
-		IMAGE_FIRST_SECTION(nt);
+	IMAGE_SECTION_HEADER* section =	IMAGE_FIRST_SECTION(nt);
 
-	for (WORD s = 0;
-		s < nt->FileHeader.NumberOfSections;
-		++s, ++section)
+	for (WORD s = 0; s < nt->FileHeader.NumberOfSections; ++s, ++section)
 	{
 		// We only need executable code sections.
-		if (!(section->Characteristics &
-			IMAGE_SCN_MEM_EXECUTE))
-		{
+		if (!(section->Characteristics & IMAGE_SCN_MEM_EXECUTE)) {
 			continue;
 		}
 
-		BYTE* start =
-			image + section->VirtualAddress;
-
-		size_t sectionSize =
-			section->Misc.VirtualSize;
+		BYTE* start = image + section->VirtualAddress;
+		size_t sectionSize = section->Misc.VirtualSize;
 
 		if (sectionSize < patternBytes.size())
 			continue;
 
-		for (size_t offset = 0;
-			offset <= sectionSize - patternBytes.size();
-			++offset)
+		for (size_t offset = 0;	offset <= sectionSize - patternBytes.size(); ++offset)
 		{
 			bool match = true;
 
-			for (size_t i = 0;
-				i < patternBytes.size();
-				++i)
+			for (size_t i = 0; i < patternBytes.size();	++i)
 			{
-				if (patternBytes[i] != -1 &&
-					start[offset + i] !=
-					static_cast<BYTE>(patternBytes[i]))
+				if (patternBytes[i] != -1 && start[offset + i] != static_cast<BYTE>(patternBytes[i]))
 				{
 					match = false;
 					break;
@@ -151,9 +120,7 @@ static DWORD FindPattern(const char* pattern)
 
 			if (match)
 			{
-				return reinterpret_cast<DWORD>(
-					start + offset
-					);
+				return reinterpret_cast<DWORD>(start + offset);
 			}
 		}
 	}
@@ -307,21 +274,15 @@ DWORD Hooks::scanPattern(const char* name, const char* pattern, const char* mask
 }
 */
 
-DWORD Hooks::scanPattern2(const char* name, const char* pattern, DWORD expected) {
-	DWORD address = FindPattern(pattern);
+DWORD Hooks::scanPattern2(const char* name, const char* pattern, DWORD expected, HMODULE module) {
+	DWORD address = FindPattern(pattern, module);
 	if (!address) {
 		char buffer[512];
 		sprintf_s(buffer, "fkSettings: pattern not found: %s\n", name ? name : "(unnamed)");
 		OutputDebugStringA(buffer);
 		return 0;
 	}
-
-	scanNameToAddr[
-		name ? name : ""
-	] = address;
-
-	scanAddrToName[address] =
-		name ? name : "";
-
+	scanNameToAddr[name ? name : ""] = address;
+	scanAddrToName[address] = name ? name : "";
 	return address;
 }

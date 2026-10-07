@@ -163,9 +163,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="CDButton.h" />
     <ClInclude Include="Hooks.h" />
     <ClInclude Include="ColourMaps.h" />
+    <ClInclude Include="WaterFix.h" />
     <ClInclude Include="SecretWeapons.h" />
     <ClInclude Include="SecretWeaponsStrings.h" />
     <ClInclude Include="ExtendedOptions.h" />
@@ -174,10 +174,10 @@
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="CDButton.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="Hooks.cpp" />
     <ClCompile Include="ColourMaps.cpp" />
+    <ClCompile Include="WaterFix.cpp" />
     <ClCompile Include="SecretWeapons.cpp" />
     <ClCompile Include="ExtendedOptions.cpp" />
     <ClCompile Include="NetworkTeams.cpp" />
