@@ -782,6 +782,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
     {
     case DLL_PROCESS_ATTACH:
     {
+        ColourMaps::BeginDiagnostics(hModule);
         createAdvancedOptions = FileExists("settings.exe");
 
         MH_STATUS status = MH_Initialize();
@@ -850,16 +851,20 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         if (!WaterFix::Install())
             OutputDebugStringA("fkSettings: water colour preview fix is unavailable.\n");
 
-        if (!SecretWeapons::Install())
+        const bool lobbyNetworkHooks = SecretWeapons::Install();
+        bool roundNetworkHooks = false;
+        if (!lobbyNetworkHooks)
             OutputDebugStringA("fkSettings: Secret weapon editor is unavailable.\n");
         else
         {
             if (!ExtendedOptions::Install())
                 OutputDebugStringA("fkSettings: Extended Options are unavailable.\n");
-            if (!NetworkTeams::Install())
+            roundNetworkHooks = NetworkTeams::Install();
+            if (!roundNetworkHooks)
                 OutputDebugStringA("fkSettings: Network computer teams are unavailable.\n");
         }
 
+        ColourMaps::ReportNetworkHooks(lobbyNetworkHooks, roundNetworkHooks);
         if (!ColourMaps::Install())
             OutputDebugStringA("fkSettings: Colour map importer is unavailable.\n");
 
@@ -881,7 +886,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         break;
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
+        break;
     case DLL_PROCESS_DETACH:
+        ColourMaps::Shutdown();
         if(Initialized && lpReserved)
             shutdown();
         break;

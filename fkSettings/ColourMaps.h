@@ -3,8 +3,11 @@
 
 namespace ColourMaps
 {
+    void BeginDiagnostics(void* module);
+    void ReportNetworkHooks(bool lobby, bool round);
     // MinHook must be initialized; online transfer uses the shared packet hooks.
     bool Install();
+    void Shutdown(); // Cancel timer callbacks before the DLL is unloaded.
     using NetworkSend = void (*)(void*, uint32_t, uint32_t, bool, const void*, uint32_t);
     // Called by the shared packet hooks after other extensions are serialized.
     void SendNetworkPacket(void* object, uint32_t source, uint32_t target, bool broadcast,
