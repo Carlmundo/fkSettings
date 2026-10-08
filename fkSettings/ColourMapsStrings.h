@@ -165,7 +165,7 @@ namespace ColourMaps
             strings.strSaveFailed = L"Opslaan mislukt";
             break;
         case 9: // pl
-            strings.strImportFolder = L"Wybierz plik .dat znajdujący się w folderze Levels\Import gry.";
+            strings.strImportFolder = L"Wybierz plik .dat znajdujący się w folderze Levels\\Import gry.";
             strings.strHostMapError = L"Następujący gracze nie mogą korzystać z Twojej mapy:";
             strings.strLocalMapError = L"Nie możesz korzystać z mapy hosta.";
             strings.strPlayer = L"Gracz";
