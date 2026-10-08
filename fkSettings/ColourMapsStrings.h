@@ -237,15 +237,15 @@ namespace ColourMaps
         case 14: // zh-Hans
             strings.strImportFolder = L"请选择游戏 Levels\\Import 文件夹中的 .dat 文件。";
             strings.strHostMapError = L"以下玩家无法使用你的地图：";
-            strings.strLocalMapError = L"你无法使用主机的地图。";
+            strings.strLocalMapError = L"你无法使用房主的地图。";
             strings.strPlayer = L"玩家";
-            strings.strMissingMap = L"地图文件不存在。";
-            strings.strDifferentMap = L"地图与主机的版本不一致。";
+            strings.strMissingMap = L"地图缺失。";
+            strings.strDifferentMap = L"地图与房主不一致。";
             strings.strInvalidMap = L"地图文件或路径无效。";
-            strings.strCannotSaveMap = L"保存 Data\\land.dat 时出错";
-            strings.strFileNotFound = L"文件未找到";
+            strings.strCannotSaveMap = L"保存 Data\\land.dat 时出错。";
+            strings.strFileNotFound = L"未找到文件";
             strings.strFileMismatch = L"文件不匹配";
-            strings.strInvalidFile = L"文件无效";
+            strings.strInvalidFile = L"无效文件";
             strings.strSaveFailed = L"保存失败";
             break;
         }
