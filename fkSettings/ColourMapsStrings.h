@@ -39,17 +39,17 @@ namespace ColourMaps
         {
         case 0: // cs
             strings.strImportFolder = L"Vyberte soubor .dat ve složce Levels\\Import v adresáři hry.";
-            strings.strHostMapError = L"Následující hráči nemohou použít vaši mapu:";
-            strings.strLocalMapError = L"Nemůžete použít mapu hostitele.";
+            strings.strHostMapError = L"Následující hráči nemohou použít tvou mapu:";
+            strings.strLocalMapError = L"Nemůžeš použít hostitelovu mapu.";
             strings.strPlayer = L"Hráč";
-            strings.strMissingMap = L"Soubor mapy chybí.";
-            strings.strDifferentMap = L"Mapa se neshoduje s verzí hostitele.";
-            strings.strInvalidMap = L"Soubor mapy nebo cesta nejsou platné.";
-            strings.strCannotSaveMap = L"Chyba při ukládání Data\\land.dat";
+            strings.strMissingMap = L"Soubor s mapou chybí.";
+            strings.strDifferentMap = L"Mapa nesouhlasí s verzí hostitele.";
+            strings.strInvalidMap = L"Soubor s mapou nebo cesta jsou neplatné.";
+            strings.strCannotSaveMap = L"Chyba ukládání Data\\land.dat";
             strings.strFileNotFound = L"Soubor nenalezen";
-            strings.strFileMismatch = L"Soubor se neshoduje";
+            strings.strFileMismatch = L"Nesoulad souboru";
             strings.strInvalidFile = L"Neplatný soubor";
-            strings.strSaveFailed = L"Chyba ukládání";
+            strings.strSaveFailed = L"Ukládání selhalo";
             break;
         case 1: // de
             strings.strImportFolder = L"Wählen Sie eine .dat-Datei im Ordner Levels\\Import des Spiels aus.";
@@ -165,18 +165,18 @@ namespace ColourMaps
             strings.strSaveFailed = L"Opslaan mislukt";
             break;
         case 9: // pl
-            strings.strImportFolder = L"Wybierz plik .dat w folderze Levels\\Import w katalogu gry.";
-            strings.strHostMapError = L"Następujący gracze nie mogą użyć twojej mapy:";
-            strings.strLocalMapError = L"Nie możesz użyć mapy gospodarza.";
+            strings.strImportFolder = L"Wybierz plik .dat znajdujący się w folderze Levels\Import gry.";
+            strings.strHostMapError = L"Następujący gracze nie mogą korzystać z Twojej mapy:";
+            strings.strLocalMapError = L"Nie możesz korzystać z mapy hosta.";
             strings.strPlayer = L"Gracz";
-            strings.strMissingMap = L"Brak pliku mapy.";
-            strings.strDifferentMap = L"Mapa nie zgadza się z wersją gospodarza.";
+            strings.strMissingMap = L"Brakuje pliku mapy.";
+            strings.strDifferentMap = L"Mapa nie jest zgodna z wersją mapy hosta.";
             strings.strInvalidMap = L"Plik mapy lub ścieżka są nieprawidłowe.";
-            strings.strCannotSaveMap = L"Błąd zapisu Data\\land.dat";
+            strings.strCannotSaveMap = L"Błąd podczas zapisywania pliku Data\\land.dat";
             strings.strFileNotFound = L"Nie znaleziono pliku";
-            strings.strFileMismatch = L"Plik nie zgadza się";
+            strings.strFileMismatch = L"Niezgodność pliku";
             strings.strInvalidFile = L"Nieprawidłowy plik";
-            strings.strSaveFailed = L"Błąd zapisu";
+            strings.strSaveFailed = L"Zapisywanie nie powiodło się";
             break;
         case 10: // pt
             strings.strImportFolder = L"Selecione um ficheiro .dat na pasta Levels\\Import do jogo.";
