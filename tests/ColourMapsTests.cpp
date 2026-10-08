@@ -8,6 +8,53 @@
 namespace CM = ColourMaps;
 static void Check(bool condition, const char* message) { if (!condition) throw std::runtime_error(message); }
 static void Put(std::vector<BYTE>& bytes, size_t offset, uint32_t value) { memcpy(bytes.data() + offset, &value, 4); }
+static void LanguageTests()
+{
+    struct Translation { const char* code; const wchar_t* prefix; };
+    const Translation translations[] = {
+        { "cs", L"Vyberte" }, { "de", L"W\u00e4hlen" }, { "en", L"Select" },
+        { "es", L"Selecciona" }, { "es-419", L"Selecciona" }, { "fr", L"S\u00e9lectionnez" },
+        { "is", L"Veldu" }, { "it", L"Seleziona" }, { "nl", L"Selecteer" }, { "pl", L"Wybierz" },
+        { "pt", L"Selecione" }, { "pt-br", L"Selecione" },
+        { "ru", L"\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435" },
+        { "sv", L"V\u00e4lj" }, { "zh-Hans", L"\u8bf7\u9009\u62e9" }
+    };
+    const std::wstring outside = CM::GameDirectory() + L"\\outside.dat";
+    for (const auto& translation : translations)
+        for (const std::string code : { std::string(translation.code), " \t" + std::string(translation.code) + "\r\n",
+            "\xEF\xBB\xBF" + std::string(translation.code) + "\r\n" })
+        {
+            CM::SetLanguage(code);
+            const auto& text = CM::strings.strImportFolder;
+            Check(text.find(translation.prefix) == 0 && text.find(L".dat") != std::wstring::npos &&
+                text.find(L"Levels\\Import") != std::wstring::npos, "all fifteen languages retain the literal filename extension and folder");
+            for (bool relative : { false, true })
+            {
+                bool rejected = false;
+                try { if (relative) CM::ImportedPath(L"..\\outside.dat"); else CM::RelativeImportPath(outside.c_str()); }
+                catch (const std::runtime_error& error)
+                {
+                    const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, error.what(), -1, nullptr, 0);
+                    Check(count > 1, "localized path exception is valid UTF-8");
+                    std::wstring decoded(count, L'\0');
+                    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, error.what(), -1, &decoded[0], count);
+                    decoded.pop_back();
+                    Check(decoded == text, "both path rejection routes preserve the selected language for the Unicode dialog");
+                    rejected = true;
+                }
+                Check(rejected, "invalid map paths remain rejected in every language");
+            }
+        }
+    CM::SetLanguage("pt"); Check(CM::strings.strImportFolder.find(L"ficheiro") != std::wstring::npos, "European Portuguese wording");
+    CM::SetLanguage("pt-br"); Check(CM::strings.strImportFolder.find(L"arquivo") != std::wstring::npos, "Brazilian Portuguese wording");
+    for (const char* code : { "", "unknown", " \t\r\n", "\xEF\xBB\xBF" "\r\n" })
+    {
+        CM::SetLanguage(code);
+        Check(CM::strings.strImportFolder == L"Select a .dat file inside the game's Levels\\Import folder.", "missing and unknown languages fall back to English");
+    }
+    CM::SetLanguage("en");
+    puts("PASS: localized map-folder errors in all 15 languages, UTF-8/BOM/whitespace and English fallback");
+}
 static void ChecksumTests()
 {
     const BYTE digits[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
@@ -16,8 +63,8 @@ static void ChecksumTests()
     std::vector<BYTE> bytes(256);
     for (size_t i = 0; i < bytes.size(); ++i) bytes[i] = static_cast<BYTE>(i);
     Check(CM::Checksum(bytes) == 0x29058c73, "CRC32 of all byte values matches an independent reference");
-    bytes.assign(CM::ChunkSize, 0);
-    Check(CM::Checksum(bytes) == 0x011ffca6, "CRC32 of a zero-filled network chunk matches an independent reference");
+    bytes.assign(32768, 0);
+    Check(CM::Checksum(bytes) == 0x011ffca6, "CRC32 of a zero-filled block matches an independent reference");
     puts("PASS: CRC32 independently verified known vectors");
 }
 static bool Rejected(std::vector<BYTE> bytes)
@@ -39,7 +86,8 @@ static void ParserTests(const CM::Map& map)
     bytes = map.bytes; Put(bytes, 16, 2); Check(Rejected(bytes), "invalid cavern flag rejected");
     bytes = map.bytes; Put(bytes, 20, 0xffffffff); Check(Rejected(bytes), "unbounded location count rejected");
     bytes = map.bytes; Put(bytes, 24, 1920); Check(Rejected(bytes), "invalid object coordinate rejected");
-    const size_t imageStart = 28 + map.spawns * 8;
+    uint32_t spawns = 0; memcpy(&spawns, map.bytes.data() + 20, sizeof(spawns));
+    const size_t imageStart = 28 + spawns * 8;
     bytes = map.bytes; bytes[imageStart] = 'X'; Check(Rejected(bytes), "wrong image signature rejected");
     bytes = map.bytes; bytes[imageStart + 9] = 24; Check(Rejected(bytes), "truecolour foreground rejected");
     bytes = map.bytes; bytes[imageStart + 11] = 255; bytes[imageStart + 12] = 255;
@@ -162,7 +210,16 @@ static void PublishTests(const CM::Map& map)
     puts("PASS: atomic byte-preserving publication, CTerrain locks and local launch failure gate");
 }
 
-static INT_PTR CALLBACK DialogProc(HWND, UINT, WPARAM, LPARAM) { return FALSE; }
+static unsigned nativeGenerateCommands = 0;
+static INT_PTR CALLBACK DialogProc(HWND, UINT message, WPARAM wparam, LPARAM)
+{
+    if (message == WM_COMMAND && LOWORD(wparam) == CM::GenerateId && HIWORD(wparam) == BN_CLICKED)
+    {
+        Check(!CM::selected, "native Generate receives the restored terrain mode");
+        ++nativeGenerateCommands;
+    }
+    return FALSE;
+}
 static void EditorTests(const char* frontend, const CM::Map& map)
 {
     HMODULE resources = LoadLibraryExA(frontend, nullptr, LOAD_LIBRARY_AS_DATAFILE);
@@ -174,6 +231,20 @@ static void EditorTests(const char* frontend, const CM::Map& map)
     Check(gameControls && CM::AttachGamePreview(gameControls) && CM::AttachGamePreview(gameControls), "attach actual Game controls preview idempotently");
     Check(CM::gamePreviews.size() == 1, "one shared preview per Game controls page");
     const LONG initialStyle = GetWindowLongW(GetDlgItem(window, 1018), GWL_STYLE);
+    const std::array<int, 3> terrainControls{ 1028, 1019, 1025 };
+    const std::array<LONG, 3> terrainStyles{ GetWindowLongW(GetDlgItem(window, 1028), GWL_STYLE),
+        GetWindowLongW(GetDlgItem(window, 1019), GWL_STYLE), GetWindowLongW(GetDlgItem(window, 1025), GWL_STYLE) };
+    const bool generateEnabled = IsWindowEnabled(GetDlgItem(window, CM::GenerateId)) != FALSE;
+    LOGFONTW styleLabelFont{};
+    Check(GetObjectW(reinterpret_cast<HFONT>(SendDlgItemMessageW(window, 1029, WM_GETFONT, 0, 0)),
+        sizeof(styleLabelFont), &styleLabelFont) != 0, "read native style label font");
+    // Native page initialization can size these labels independently of the dialog.
+    styleLabelFont.lfHeight -= 2;
+    HFONT nativeLabelFont = CreateFontIndirectW(&styleLabelFont);
+    Check(nativeLabelFont != nullptr, "create independently sized native style label font");
+    for (int id : { 1027, 1029 })
+        SendDlgItemMessageW(window, id, WM_SETFONT, reinterpret_cast<WPARAM>(nativeLabelFont), FALSE);
+    nativeGenerateCommands = 0;
     HWND levelStyle = GetDlgItem(window, 1021);
     auto label = [&](unsigned stringId) {
         wchar_t text[256]{};
@@ -216,14 +287,75 @@ static void EditorTests(const char* frontend, const CM::Map& map)
     EnableWindow(GetDlgItem(window, 1024), FALSE);
     Check(CM::Attach(window) && CM::Attach(window), "attach importer idempotently");
     Check(CM::pages.size() == 1, "only one page state");
-    RECT button{}, picture{};
+    for (HWND page : { window, gameControls })
+        Check(!GetDlgItem(page, 51013) && !GetDlgItem(page, 51014), "map status label and progress bar are absent from both tabs");
+    Check(!GetDlgItem(window, 51011), "no separate generated-map reset button");
+    HWND previewLabel = GetDlgItem(window, CM::PreviewLabelId);
+    wchar_t previewText[128]{}; GetWindowTextW(previewLabel, previewText, 128);
+    Check(previewText == label(CM::PreviewLabelStringId) && !(GetWindowLongW(previewLabel, GWL_STYLE) & WS_VISIBLE),
+        "localized string 726 heading stays hidden for normal terrain");
+    LOGFONTW headingFont{};
+    Check(GetObjectW(reinterpret_cast<HFONT>(SendMessageW(previewLabel, WM_GETFONT, 0, 0)), sizeof(headingFont), &headingFont) &&
+        headingFont.lfWeight == FW_BOLD && headingFont.lfHeight == styleLabelFont.lfHeight &&
+        headingFont.lfWidth == styleLabelFont.lfWidth && wcscmp(headingFont.lfFaceName, styleLabelFont.lfFaceName) == 0 &&
+        (GetWindowLongW(previewLabel, GWL_STYLE) & SS_TYPEMASK) == SS_CENTER,
+        "custom terrain heading is bold and centred with the native Water/Level style label font size");
+    wchar_t importText[128]{}; GetWindowTextW(GetDlgItem(window, CM::ImportId), importText, 128);
+    Check(importText == label(CM::ImportStringId), "Import uses the frontend's localized string 447");
+    const auto importRoot = std::filesystem::path(CM::ImportRoot());
+    const auto hiddenImportRoot = importRoot.parent_path() / L"Import-unavailable-fixture";
+    Check(!std::filesystem::exists(hiddenImportRoot), "isolated missing-import-folder fixture");
+    std::filesystem::rename(importRoot, hiddenImportRoot);
+    CM::RefreshAll();
+    const bool importHidden = !(GetWindowLongW(GetDlgItem(window, CM::ImportId), GWL_STYLE) & WS_VISIBLE) &&
+        !IsWindowEnabled(GetDlgItem(window, CM::ImportId));
+    SendMessageW(window, WM_COMMAND, MAKEWPARAM(CM::ImportId, BN_CLICKED), reinterpret_cast<LPARAM>(GetDlgItem(window, CM::ImportId)));
+    std::filesystem::rename(hiddenImportRoot, importRoot);
+    CM::RefreshAll();
+    Check(importHidden && (GetWindowLongW(GetDlgItem(window, CM::ImportId), GWL_STYLE) & WS_VISIBLE) &&
+        IsWindowEnabled(GetDlgItem(window, CM::ImportId)), "Import hides for a missing folder and returns when the folder exists");
+    HWND cancelButton = GetDlgItem(window, CM::CancelId);
+    wchar_t cancelText[128]{}; GetWindowTextW(cancelButton, cancelText, 128);
+    Check(cancelText == label(CM::CancelStringId) && !(GetWindowLongW(cancelButton, GWL_STYLE) & WS_VISIBLE),
+        "localized string 19 Cancel button stays hidden for normal terrain");
+    RECT button{}, picture{}, invert{};
     GetWindowRect(GetDlgItem(window, CM::ImportId), &button);
     GetWindowRect(GetDlgItem(window, 1033), &picture);
+    GetWindowRect(GetDlgItem(window, 1057), &invert);
     RECT intersection{};
-    Check(!IntersectRect(&intersection, &button, &picture), "import button fits beside native preview");
+    Check(button.left >= picture.right && button.top == invert.top && button.bottom == invert.bottom &&
+        button.left - picture.right == picture.left - invert.right && !IntersectRect(&intersection, &button, &picture),
+        "Import fits to the right of the native preview, inline with Invert terrain and equally spaced");
     CM::selected.reset(new CM::Map(map));
     CM::RefreshAll();
+    RECT importedButton{}, importedCancel{}, importedPicture{}, editButton{}, saveAsButton{}, generateButton{};
+    GetWindowRect(GetDlgItem(window, CM::ImportId), &importedButton);
+    GetWindowRect(cancelButton, &importedCancel);
+    GetWindowRect(CM::pages[0]->preview, &importedPicture);
+    GetWindowRect(GetDlgItem(window, CM::EditTerrainId), &editButton);
+    GetWindowRect(GetDlgItem(window, CM::SaveAsId), &saveAsButton);
+    GetWindowRect(GetDlgItem(window, CM::GenerateId), &generateButton);
+    Check(importedPicture.right == saveAsButton.right &&
+        importedPicture.bottom - generateButton.bottom == CM::Units(window, 0, 6, 0, 0).top &&
+        importedPicture.right - importedPicture.left > CM::Units(window, 0, 0, 294, 0).right,
+        "enlarged custom preview aligns with Save As on the right and sits below Generate's baseline");
+    RECT headingBounds{}; GetWindowRect(previewLabel, &headingBounds);
+    Check((GetWindowLongW(previewLabel, GWL_STYLE) & WS_VISIBLE) &&
+        importedPicture.top - headingBounds.bottom == CM::Units(window, 0, 0, 0, 2).bottom + CM::Units(window, 0, 6, 0, 0).top &&
+        headingBounds.left == importedPicture.left && headingBounds.right == importedPicture.right,
+        "custom terrain heading stays centred with a larger gap above the lowered image");
+    Check(abs(importedButton.left + importedCancel.right - importedPicture.left - importedPicture.right) <= 1 &&
+        importedButton.top > importedPicture.bottom &&
+        importedCancel.left - importedButton.right == CM::Units(window, 0, 0, 10, 0).right &&
+        importedCancel.top == importedButton.top && importedCancel.bottom == importedButton.bottom &&
+        importedButton.top - editButton.top == CM::Units(window, 0, 11, 0, 0).top &&
+        importedButton.bottom - importedButton.top == editButton.bottom - editButton.top &&
+        (GetWindowLongW(cancelButton, GWL_STYLE) & WS_VISIBLE) && IsWindowEnabled(cancelButton),
+        "Import and Cancel are centred beneath the map with increased vertical and horizontal spacing");
     Check(!(GetWindowLongW(GetDlgItem(window, 1018), GWL_STYLE) & WS_VISIBLE), "generated pictures hidden when imported");
+    for (int id : terrainControls)
+        Check(!(GetWindowLongW(GetDlgItem(window, id), GWL_STYLE) & WS_VISIBLE),
+            "Terrain label/dropdown and Current terrain label beside Save As are hidden for an import");
     Check(!IsWindowEnabled(GetDlgItem(window, 1019)), "generator options disabled when imported");
     const LRESULT importedWater = SendMessageW(water, CB_GETCURSEL, 0, 0);
     const auto importedWaterName = CM::WaterName(map);
@@ -288,7 +420,7 @@ static void EditorTests(const char* frontend, const CM::Map& map)
     Check(CM::ComboText(water, SendMessageW(water, CB_GETCURSEL, 0, 0)) == L"Green" && CM::selected->bytes == prefixedWater.bytes,
         "case-insensitive colour matching accepts relative prefix and slash variants");
     std::filesystem::remove(styleDirectory / "land.dat"); std::filesystem::remove(styleDirectory);
-    Check(GetWindowLongW(GetDlgItem(window, CM::ResetId), GWL_STYLE) & WS_VISIBLE, "generated map reset available");
+    Check(IsWindowEnabled(GetDlgItem(window, CM::GenerateId)), "native Generate stays available for imported maps");
     HDC dc = CreateCompatibleDC(nullptr);
     BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = 600;
     info.bmiHeader.biHeight = -300; info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32;
@@ -342,9 +474,37 @@ static void EditorTests(const char* frontend, const CM::Map& map)
         "preview background does not modify source bytes or palette");
     CM::selected->pixels.swap(realPixels);
     SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc);
-    SendMessageW(window, WM_COMMAND, MAKEWPARAM(CM::ResetId, BN_CLICKED), reinterpret_cast<LPARAM>(GetDlgItem(window, CM::ResetId)));
-    Check(!CM::selected, "reset clears active import");
+    CM::network.joining = true; CM::network.remote.reset(new CM::Map(*CM::selected)); CM::RefreshAll();
+    Check(!IsWindowEnabled(GetDlgItem(window, CM::GenerateId)), "joiners cannot replace the host's map using Generate");
+    SendMessageW(window, WM_COMMAND, MAKEWPARAM(CM::GenerateId, BN_CLICKED), reinterpret_cast<LPARAM>(GetDlgItem(window, CM::GenerateId)));
+    Check(CM::selected && nativeGenerateCommands == 0, "joiner Generate commands leave the host selection intact");
+    Check(!IsWindowEnabled(cancelButton), "joiners cannot cancel the host's map");
+    SendMessageW(window, WM_COMMAND, MAKEWPARAM(CM::CancelId, BN_CLICKED), reinterpret_cast<LPARAM>(cancelButton));
+    Check(CM::selected && nativeGenerateCommands == 0, "joiner Cancel commands leave the host selection intact");
+    CM::ResetNetwork(); CM::RefreshAll();
+    SendMessageW(window, WM_COMMAND, MAKEWPARAM(CM::CancelId, BN_CLICKED), reinterpret_cast<LPARAM>(cancelButton));
+    RECT cancelledImport{}, cancelledGameBounds{};
+    GetWindowRect(GetDlgItem(window, CM::ImportId), &cancelledImport);
+    GetWindowRect(gamePreview, &cancelledGameBounds);
+    Check(!CM::selected && nativeGenerateCommands == 0 && EqualRect(&button, &cancelledImport) &&
+        EqualRect(&originalGameBounds, &cancelledGameBounds) &&
+        !(GetWindowLongW(cancelButton, GWL_STYLE) & WS_VISIBLE) &&
+        !(GetWindowLongW(previewLabel, GWL_STYLE) & WS_VISIBLE),
+        "Cancel restores normal views and Import position without generating terrain");
+    for (size_t i = 0; i < terrainStyles.size(); ++i)
+        Check((GetWindowLongW(GetDlgItem(window, terrainControls[i]), GWL_STYLE) & WS_VISIBLE) == (terrainStyles[i] & WS_VISIBLE),
+            "Cancel restores the Terrain controls and Current terrain label beside Save As");
+    CM::selected.reset(new CM::Map(map)); CM::RefreshAll();
+    SendMessageW(window, WM_COMMAND, MAKEWPARAM(CM::GenerateId, BN_CLICKED), reinterpret_cast<LPARAM>(GetDlgItem(window, CM::GenerateId)));
+    Check(!CM::selected && nativeGenerateCommands == 1, "Generate clears the import and forwards its native command");
+    Check(!(GetWindowLongW(previewLabel, GWL_STYLE) & WS_VISIBLE), "Generate hides the custom terrain heading");
     Check((GetWindowLongW(GetDlgItem(window, 1018), GWL_STYLE) & WS_VISIBLE) == (initialStyle & WS_VISIBLE), "native visibility restored");
+    for (size_t i = 0; i < terrainStyles.size(); ++i)
+        Check((GetWindowLongW(GetDlgItem(window, terrainControls[i]), GWL_STYLE) & WS_VISIBLE) == (terrainStyles[i] & WS_VISIBLE),
+            "Generate restores the Terrain controls and Current terrain label beside Save As");
+    Check((IsWindowEnabled(GetDlgItem(window, CM::GenerateId)) != FALSE) == generateEnabled, "native Generate enabled state restored");
+    RECT restoredImport{}; GetWindowRect(GetDlgItem(window, CM::ImportId), &restoredImport);
+    Check(EqualRect(&button, &restoredImport) != FALSE, "Generate returns Import to the native preview's right side");
     Check(!IsWindowEnabled(GetDlgItem(window, 1024)), "preexisting disabled state preserved");
     Check(!IsWindowEnabled(levelStyle) && SendMessageW(levelStyle, CB_GETCOUNT, 0, 0) == 3 &&
         SendMessageW(levelStyle, CB_GETCURSEL, 0, 0) == originalStyleSelection, "native style selection and enabled state restored");
@@ -365,6 +525,7 @@ static void EditorTests(const char* frontend, const CM::Map& map)
     Check(GetWindowLongW(gamePreview, GWL_STYLE) == originalGameStyle &&
         GetWindowLongW(gamePreview, GWL_EXSTYLE) == originalGameExtendedStyle, "native preview frame styles restored");
     DestroyWindow(window); DestroyWindow(gameControls); DestroyWindow(parent); FreeLibrary(resources);
+    DeleteObject(nativeLabelFont);
     Check(CM::pages.empty() && CM::gamePreviews.empty(), "both tabs clean up preview state");
     puts("PASS: actual Terrain/Game controls dialogs, borderless previews, Open/Cavern and water switching, and native reset lifecycle");
 }
@@ -463,96 +624,6 @@ static void CallerTests(BYTE* frontend, const CM::Map& map)
     puts("PASS: supplied normal Go and next-round CALL instructions preserve imported terrain through the engine-launch boundary");
 }
 
-static INT_PTR CALLBACK TransparentStatusDialogProc(HWND, UINT message, WPARAM wparam, LPARAM)
-{
-    if (message == WM_CTLCOLORSTATIC)
-    {
-        SetBkMode(reinterpret_cast<HDC>(wparam), TRANSPARENT);
-        return reinterpret_cast<INT_PTR>(GetStockObject(HOLLOW_BRUSH));
-    }
-    return FALSE;
-}
-static void StatusRepaintTests(HWND page)
-{
-    HWND label = GetDlgItem(page, CM::StatusId), progress = GetDlgItem(page, CM::ProgressId);
-    RECT rect{}; GetClientRect(label, &rect);
-    BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info.bmiHeader.biWidth = rect.right; info.bmiHeader.biHeight = -rect.bottom;
-    info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
-    void* pixels = nullptr; HDC dc = CreateCompatibleDC(nullptr);
-    HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
-    Check(dc && bitmap && pixels, "status repaint bitmap"); HGDIOBJ previous = SelectObject(dc, bitmap);
-    const size_t size = size_t(rect.right) * rect.bottom * 4;
-    memset(pixels, 0xa5, size);
-    CM::TransferStatus status; status.visible = true;
-    for (const wchar_t* caption : { L"Sending map: 1%", L"Sending map: 45%", L"Game queued; sending map: 99%", L"Map ready" })
-    {
-        status.text = status.compact = caption;
-        CM::ShowTransferStatus(label, progress, status, false);
-        SendMessageW(label, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT);
-    }
-    GdiFlush();
-    const auto repeated = std::vector<BYTE>(static_cast<BYTE*>(pixels), static_cast<BYTE*>(pixels) + size);
-    memset(pixels, 0x5a, size);
-    SendMessageW(label, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT); GdiFlush();
-    Check(!memcmp(repeated.data(), pixels, size), "changing status captions paints exactly the final caption without old text or background pixels");
-    SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc);
-}
-static void TransferStatusTests(const char* frontend, const CM::Map& map)
-{
-    HMODULE resources = LoadLibraryExA(frontend, nullptr, LOAD_LIBRARY_AS_DATAFILE);
-    Check(resources != nullptr, "load actual dialogs for transfer status");
-    HWND parent = CreateWindowW(L"STATIC", L"Map status fixture", WS_OVERLAPPEDWINDOW, 0, 0, 900, 500, nullptr, nullptr, nullptr, nullptr);
-    HWND terrain = CreateDialogParamW(resources, MAKEINTRESOURCEW(288), parent, TransparentStatusDialogProc, 0);
-    HWND game = CreateDialogParamW(resources, MAKEINTRESOURCEW(149), parent, TransparentStatusDialogProc, 0);
-    Check(CM::Attach(terrain) && CM::AttachGamePreview(game), "attach both status displays to native dialogs");
-    auto text = [](HWND page) { wchar_t value[128]{}; GetWindowTextW(GetDlgItem(page, CM::StatusId), value, 128); return std::wstring(value); };
-    auto visible = [](HWND page) { return (GetWindowLongW(GetDlgItem(page, CM::StatusId), GWL_STYLE) & WS_VISIBLE) != 0; };
-    CM::ResetNetwork(); CM::selected.reset(new CM::Map(map)); CM::RefreshAll();
-    Check(!visible(terrain) && !visible(game), "local imports do not show an online transfer status");
-    CM::network.hosting = true;
-    CM::MapTransfer transfer; transfer.map = std::make_shared<CM::Map>(map); transfer.players = { 10, 20 };
-    transfer.identity.revision = 1; transfer.identity.size = static_cast<uint32_t>(map.bytes.size()); transfer.identity.crc = CM::Checksum(map.bytes);
-    transfer.offset = static_cast<uint32_t>(map.bytes.size() / 2 / CM::ChunkSize) * CM::ChunkSize;
-    transfer.confirmedBytes = static_cast<uint64_t>(transfer.offset) * transfer.players.size(); CM::network.transfers.push_back(transfer); CM::UpdateTransferStatus();
-    Check(visible(terrain) && visible(game) && text(terrain).find(L"Sending map:") == 0 && text(game).find(L"Sending ") == 0,
-        "host has visible sending percentages on Terrain and beside Go");
-    const auto percent = SendDlgItemMessageW(game, CM::ProgressId, PBM_GETPOS, 0, 0);
-    Check(percent > 0 && percent < 100, "status progress reports confirmed bytes rather than submitted bytes");
-    CM::network.pendingGo.assign(8, 0); CM::UpdateTransferStatus();
-    Check(text(terrain).find(L"Game queued;") == 0 && text(game).find(L"Queued ") == 0,
-        "early Go visibly reports the game is queued while the transfer continues");
-    CM::CancelTransfers();
-    Check(text(game) == L"Retry Go", "failed transfer gives a visible retry instruction");
-    CM::network.failed = false; CM::UpdateTransferStatus();
-    Check(text(game) == L"Map ready" && SendDlgItemMessageW(game, CM::ProgressId, PBM_GETPOS, 0, 0) == 100,
-        "completion remains visibly ready with full progress");
-    CM::ResetNetwork(); CM::network.joining = true; CM::network.incoming = transfer.identity;
-    CM::network.received = transfer.identity.size / 2; CM::UpdateTransferStatus();
-    Check(text(terrain).find(L"Receiving map:") == 0 && text(game).find(L"Receiving ") == 0, "joiner sees receive progress before its preview is ready");
-    CM::network.remote.reset(new CM::Map(map)); CM::network.complete = CM::network.incoming; CM::RefreshAll();
-    Check(text(terrain) == L"Map ready" && text(game) == L"Map ready", "joiner reports readiness only after complete validation");
-    for (HWND page : { terrain, game })
-    {
-        RECT label{}, bar{}, image{}, intersection{};
-        GetWindowRect(GetDlgItem(page, CM::StatusId), &label); GetWindowRect(GetDlgItem(page, CM::ProgressId), &bar);
-        GetWindowRect(GetDlgItem(page, page == game ? 1262 : CM::PreviewId), &image);
-        Check(!IntersectRect(&intersection, &label, &image) && !IntersectRect(&intersection, &bar, &image), "transfer status and progress stay outside the map image");
-    }
-    RECT label{}, go{}, teams{}, intersection{};
-    GetWindowRect(GetDlgItem(game, CM::StatusId), &label); GetWindowRect(GetDlgItem(game, 1066), &go); GetWindowRect(GetDlgItem(game, 1032), &teams);
-    Check(!IntersectRect(&intersection, &label, &go) && !IntersectRect(&intersection, &label, &teams), "Go status fits the native gap without overlapping Go or teams");
-    HDC dc = GetDC(GetDlgItem(game, CM::StatusId));
-    HGDIOBJ previous = SelectObject(dc, reinterpret_cast<HFONT>(SendDlgItemMessageW(game, CM::StatusId, WM_GETFONT, 0, 0)));
-    SIZE extent{}; GetTextExtentPoint32W(dc, L"Receiving 99%", 13, &extent); SelectObject(dc, previous); ReleaseDC(GetDlgItem(game, CM::StatusId), dc);
-    Check(extent.cx <= label.right - label.left, "receive progress caption fits the native dialog font");
-    StatusRepaintTests(terrain); StatusRepaintTests(game);
-    CM::ResetNetwork(); Check(!visible(terrain) && !visible(game), "disconnect hides both transfer indicators");
-    DestroyWindow(terrain); DestroyWindow(game); DestroyWindow(parent); FreeLibrary(resources); CM::selected.reset();
-    Check(CM::pages.empty() && CM::gamePreviews.empty(), "status controls clean up with their pages");
-    puts("PASS: native Terrain/Go transfer percentages, queued start, ready/failure status, transparent-parent repaint, layout and lifecycle");
-}
-
 static std::vector<std::vector<BYTE>> mapPackets;
 static std::vector<uint32_t> mapTargets;
 static std::vector<BYTE> readyPacket;
@@ -570,12 +641,11 @@ static bool confirmMap = true;
 static bool CaptureMapAttempt(void* object, uint32_t source, uint32_t target, const void* packet, uint32_t length)
 {
     CaptureMap(object, source, target, false, packet, length);
-    if (confirmMap && length >= sizeof(CM::MapChunk))
+    if (confirmMap && length >= sizeof(CM::MapReference))
     {
-        CM::CheckedMapChunk ack; memcpy(&ack.header, packet, sizeof(ack.header)); ack.header.type = CM::MapAckPacketType;
-        const uint32_t ackSize = ack.header.version >= 6 ? sizeof(ack) : sizeof(ack.header);
-        if (ack.header.version >= 6) memcpy(&ack.crc, static_cast<const BYTE*>(packet) + sizeof(ack.header), 4);
-        Check(CM::ReceiveMapAck(target, &ack, ackSize), "mock peer confirms the submitted chunk");
+        CM::MapReference reference; memcpy(&reference, packet, sizeof(reference));
+        CM::MapReply ack; ack.header = reference.header; ack.header.type = CM::MapAckPacketType; ack.sourceCrc = reference.sourceCrc;
+        Check(CM::ReceiveMapAck(target, &ack, sizeof(ack)), "mock peer confirms the installed map identity");
     }
     return true;
 }
@@ -587,8 +657,8 @@ static bool CaptureControlAttempt(void* object, uint32_t source, uint32_t target
 }
 static void DrainMapTransfers()
 {
-    for (size_t i = 0; (!CM::network.transfers.empty() || CM::network.deferredGo || !CM::network.controls.empty() || !CM::network.pendingGo.empty()) && i < 8192; ++i) CM::PumpTransfers();
-    Check(CM::network.transfers.empty() && !CM::network.deferredGo && CM::network.controls.empty() && CM::network.pendingGo.empty() && !CM::transferTimer,
+    for (size_t i = 0; (!CM::network.checks.empty() || CM::network.deferredGo || !CM::network.controls.empty() || !CM::network.pendingGo.empty()) && i < 8192; ++i) CM::PumpNetworkQueues();
+    Check(CM::network.checks.empty() && !CM::network.deferredGo && CM::network.controls.empty() && CM::network.pendingGo.empty() && !CM::networkTimer,
         "paced terrain and handshake sends drain and stop their timer");
 }
 static int busyAttempts = 0, heartbeats = 0;
@@ -604,337 +674,20 @@ static LRESULT CALLBACK HeartbeatProc(HWND window, UINT message, WPARAM wparam, 
 }
 static void PacedNetworkTests(const CM::Map& sample)
 {
-    CM::enabled = true; CM::ResetNetwork(); CM::mapSendAttempt = CaptureMapAttempt;
-    CM::selected.reset(new CM::Map(sample));
-    const auto directory = std::filesystem::absolute("Release/Data");
-    Check(!std::filesystem::exists(directory), "isolated paced transfer fixture"); std::filesystem::create_directory(directory);
-    const uint32_t peer = 20, secondPeer = 30;
-    memcpy(CM::image + 0x1a7698 + 0x108c, &peer, 4); memcpy(CM::image + 0x1a7698 + 0x1090, &secondPeer, 4);
-    CM::network.hosting = true; CM::network.source = 10; CM::network.send = CaptureMap;
-    mapPackets.clear(); mapTargets.clear(); CM::SelectionChanged();
-    Check(mapPackets.empty() && CM::transferTimer && CM::network.transfers.size() == 1, "selection schedules terrain without sending inside the handler");
-    const auto old = CM::network.outgoing;
-    CM::PumpTransfers();
-    Check(mapPackets.size() >= 2 && mapPackets.size() <= CM::TransferBurst && mapTargets[0] == peer && mapTargets[1] == secondPeer && mapPackets[0] == mapPackets[1],
-        "bounded timer burst sends the same initial group to both peers");
-    const size_t submitted = mapPackets.size();
-    CM::mapSendAttempt = BusyMapAttempt; busyAttempts = 0;
-    CM::PumpTransfers();
-    Check(busyAttempts == 1 && mapPackets.size() == submitted,
-        "busy transport ends its burst after one attempt without waiting");
-    CM::mapSendAttempt = CaptureMapAttempt; CM::PumpTransfers();
-    Check(mapPackets.size() > submitted && mapPackets.size() <= submitted + CM::TransferBurst,
-        "the next tick resumes a bounded burst after backpressure");
-    CM::ChangeWater(*CM::selected, L"Blue"); CM::SelectionChanged();
-    CM::ChangeWater(*CM::selected, L"Red"); CM::SelectionChanged();
-    Check(CM::network.transfers.size() == 1 && !CM::SameIdentity(old, CM::network.outgoing) &&
-        CM::network.transfers.front().map->bytes == CM::selected->bytes, "rapid edits replace obsolete transfers with the latest immutable selection");
-    std::array<uint32_t, 2> go{ 27, 0 };
-    mapPackets.clear(); CM::SendNetworkPacket(nullptr, 10, 0, true, go.data(), sizeof(go), CaptureMap);
-    Check(mapPackets.empty() && CM::network.pendingGo.size() == 24 && CM::network.transfers.size() == 1,
-        "Go returns immediately and reuses the in-progress selection transfer");
-    const auto frozen = CM::network.roundMap->bytes;
-    CM::ChangeWater(*CM::selected, L"Yellow"); CM::SelectionChanged();
-    Check(CM::network.transfers.front().map->bytes == frozen && CM::network.roundMap->bytes == frozen,
-        "edits cannot replace the terrain of a queued Go");
-    DrainMapTransfers();
-    Check(CM::PacketType(mapPackets.back().data(), static_cast<uint32_t>(mapPackets.back().size())) == 27,
-        "Go is sent only after every recipient's chunks");
-    CM::selected.reset(new CM::Map(*CM::network.roundMap)); mapPackets.clear();
-    const auto previousRound = CM::network.round;
-    CM::SendNetworkPacket(nullptr, 10, 0, true, go.data(), sizeof(go), CaptureMap);
-    Check(mapPackets.empty() && CM::network.transfers.size() == 1 && CM::network.transfers.front().reuse,
-        "unchanged Go queues a small cache reference instead of the entire terrain");
-    DrainMapTransfers();
-    Check(mapPackets.size() == 4 && mapPackets[0].size() == sizeof(CM::MapChunk) && mapPackets.back().size() == 24 &&
-        !CM::SameIdentity(previousRound, CM::network.round), "cached terrain uses a fresh round revision without pixel retransmission");
-    const auto cachedPackets = mapPackets;
-    auto host = std::move(CM::network); CM::network = CM::NetworkState{};
-    CM::SelectNetworkHost(10);
-    Check(!CM::ReceiveMapChunk(cachedPackets[0].data(), static_cast<uint32_t>(cachedPackets[0].size())), "cache reference cannot substitute for missing terrain");
-    CM::network.remote.reset(new CM::Map(*CM::selected)); CM::network.incoming = CM::network.complete = previousRound;
-    auto wrongReference = cachedPackets[0]; wrongReference[20] ^= 1;
-    Check(!CM::ReceiveMapChunk(wrongReference.data(), static_cast<uint32_t>(wrongReference.size())), "wrong checksum cannot reuse a cached map");
-    Check(CM::ReceiveMapChunk(cachedPackets[0].data(), static_cast<uint32_t>(cachedPackets[0].size())) &&
-        CM::ReceiveMapChunk(cachedPackets[1].data(), static_cast<uint32_t>(cachedPackets[1].size())), "cached map accepts a fresh reference and its duplicate");
-    // After the cache reference clears the assembly vectors, an unsolicited
-    // full chunk with the same identity must remain bounded.
-    CM::MapChunk duplicate; duplicate.identity = CM::network.complete; duplicate.size = CM::ChunkSize;
-    std::vector<BYTE> duplicatePacket(sizeof(duplicate) + duplicate.size);
-    memcpy(duplicatePacket.data(), &duplicate, sizeof(duplicate)); memcpy(duplicatePacket.data() + sizeof(duplicate), frozen.data(), duplicate.size);
-    Check(CM::ReceiveMapChunk(duplicatePacket.data(), static_cast<uint32_t>(duplicatePacket.size())), "cached duplicate chunk validates against the map without indexing an empty assembly");
-    uint32_t cachedLength = static_cast<uint32_t>(cachedPackets.back().size());
-    Check(CM::ReceiveNetworkPacket(10, 10, cachedPackets.back().data(), cachedLength) && cachedLength == 8 &&
-        CM::network.roundMap->bytes == frozen, "cached Go launches the same complete terrain with a fresh identity");
-    CM::network = std::move(host);
-    std::array<BYTE, 24> staleReady{}; const uint32_t readyType = 28;
-    memcpy(staleReady.data(), &readyType, 4); memcpy(staleReady.data() + 4, &peer, 4); memcpy(staleReady.data() + 8, &previousRound, sizeof(previousRound));
-    Check(!CM::AcceptReady(peer, staleReady.data(), static_cast<uint32_t>(staleReady.size())), "cached rounds reject stale ready replies from the previous round");
-    // A late join during a broadcast must get its own transfer if that peer
-    // was absent from the original recipient snapshot.
-    CM::ChangeWater(*CM::selected, L"Green"); CM::SelectionChanged(); CM::QueueMap(40, false);
-    Check(CM::network.transfers.size() == 2, "new late join is not mistaken for an existing broadcast recipient");
-    CM::network.transfers.clear(); CM::StopTransferTimer();
-    // Exercise an actual Windows timer and a UI message while a map is queued.
-    HWND window = CreateWindowW(L"STATIC", L"Responsive transfer fixture", WS_POPUP, 0, 0, 100, 100, nullptr, nullptr, nullptr, nullptr);
-    SetWindowSubclass(window, HeartbeatProc, 1, 0);
-    std::array<BYTE, 32> object{}; memcpy(object.data() + 28, &window, sizeof(window)); CM::WatchNetworkWindow(object.data());
-    mapPackets.clear(); heartbeats = 0; CM::SelectionChanged(); PostMessageW(window, WM_APP + 1, 0, 0);
-    const DWORD started = GetTickCount();
-    while (mapPackets.empty() && GetTickCount() - started < 1000)
-    {
-        MSG message{};
-        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
-        Sleep(1);
-    }
-    Check(heartbeats == 1 && !mapPackets.empty() && !CM::network.transfers.empty(),
-        "UI messages dispatch during a real timer-driven terrain transfer");
-    CM::SendNetworkPacket(nullptr, 10, 0, true, go.data(), sizeof(go), CaptureMap);
-    std::array<BYTE, 24> prematureReady{};
-    memcpy(prematureReady.data(), &readyType, 4); memcpy(prematureReady.data() + 4, &peer, 4);
-    memcpy(prematureReady.data() + 8, &CM::network.round, sizeof(CM::network.round));
-    Check(!CM::AcceptReady(peer, prematureReady.data(), static_cast<uint32_t>(prematureReady.size())), "ready replies cannot advance a Go that is still queued");
-    SendMessageW(window, WM_TIMER, 8, 0);
-    Check(CM::network.failed && CM::network.transfers.empty() && CM::network.pendingGo.empty() && !CM::transferTimer,
-        "native Go timeout cancels deferred Go and all scheduled chunks");
-    CM::SelectionChanged();
-    DestroyWindow(window);
-    Check(!CM::transferTimer && CM::network.transfers.empty() && !CM::network.send, "lobby destruction cancels scheduled sends before transport objects disappear");
-    CM::network.hosting = true; CM::network.source = 10; CM::network.send = CaptureMap;
-    CM::mapSendAttempt = BusyMapAttempt; CM::SelectionChanged();
-    CM::network.transfers.front().lastProgress = GetTickCount() - 15000;
-    CM::network.pendingGo.assign(reinterpret_cast<BYTE*>(go.data()), reinterpret_cast<BYTE*>(go.data()) + sizeof(go));
-    CM::network.goStarted = GetTickCount();
-    mapPackets.clear(); CM::PumpTransfers();
-    Check(CM::network.failed && mapPackets.empty() && CM::network.pendingGo.empty() && !CM::transferTimer,
-        "stalled transport cancels pending Go without spinning or launching a mismatched game");
-    CM::mapSendAttempt = CaptureMapAttempt; CM::SelectionChanged();
-    CM::network.pendingGo.assign(reinterpret_cast<BYTE*>(go.data()), reinterpret_cast<BYTE*>(go.data()) + sizeof(go));
-    CM::network.goStarted = GetTickCount() - 25000; CM::PumpTransfers();
-    Check(!CM::network.transfers.empty() && !CM::network.failed && !CM::network.pendingGo.empty(),
-        "an active map transfer does not spend the queued-Go startup deadline");
-    CM::network.transfers.clear(); mapPackets.clear(); CM::PumpTransfers();
-    Check(CM::network.transfers.empty() && mapPackets.empty() && CM::network.pendingGo.empty() && !CM::transferTimer,
-        "overall queued-Go deadline prevents sending a start after native cancellation");
-    CM::ResetNetwork(); CM::mapSendAttempt = CaptureMapAttempt; CM::selected.reset(); CM::enabled = false;
-    const uint32_t none = 0; memcpy(CM::image + 0x1a7698 + 0x1090, &none, 4);
-    std::filesystem::remove(directory / "land.dat"); std::filesystem::remove(directory);
-    puts("PASS: paced sends, UI timer responsiveness, bounded backpressure, edit coalescing, cached Go, multi-peer/late-join ordering and cancellation");
-}
-
-static DWORD windowNow = 0, windowRtt = 0;
-static DWORD WINAPI WindowClock() { return windowNow; }
-struct WindowEvent { DWORD due; uint32_t peer; bool data; std::vector<BYTE> packet; };
-static std::deque<WindowEvent> windowEvents;
-static unsigned windowAttempts = 0, windowSends = 0, windowGo = 0, windowDrops = 0;
-static uint32_t windowCap = 0, corruptOffset = ~0u, lostOffset = ~0u;
-static bool corruptData = false, loseData = false, loseReply = false, corruptReply = false;
-static bool dropEverything = false;
-static std::array<CM::NetworkState, 2>* windowClients = nullptr;
-static bool WindowMapSend(void*, uint32_t, uint32_t target, const void* packet, uint32_t length)
-{
-    ++windowAttempts; ++windowSends;
-    CM::MapChunk header; memcpy(&header, packet, sizeof(header));
-    if (dropEverything || (target == 30 && windowCap && length + 4 > windowCap)) { ++windowDrops; return true; }
-    if (loseData && target == 30 && header.offset && header.offset != corruptOffset)
-    { loseData = false; lostOffset = header.offset; ++windowDrops; return true; }
-    std::vector<BYTE> bytes(static_cast<const BYTE*>(packet), static_cast<const BYTE*>(packet) + length);
-    if (corruptData && target == 20 && header.offset)
-    {
-        corruptData = false; corruptOffset = header.offset;
-        auto raw = CM::UnpackChunk(bytes.data() + sizeof(CM::CheckedMapChunk), length - sizeof(CM::CheckedMapChunk),
-            header.size, static_cast<uint32_t>(CM::MaximumFileSize), CM::TcpWireSize);
-        raw[0] ^= 1;
-        const auto packed = CM::PackChunk(raw.data(), static_cast<uint32_t>(raw.size()));
-        bytes.resize(sizeof(CM::CheckedMapChunk) + packed.size()); memcpy(bytes.data() + sizeof(CM::CheckedMapChunk), packed.data(), packed.size());
-    }
-    windowEvents.push_back({ windowNow + windowRtt / 2 + (header.offset / CM::TransferBlockSize % 3) * 20, target, true, std::move(bytes) });
-    return true;
-}
-static bool WindowControlSend(void*, uint32_t source, uint32_t, const void* packet, uint32_t length, bool ready)
-{
-    const uint32_t type = CM::PacketType(packet, length);
-    if (type == 27)
-    {
-        Check(!ready && CM::network.transfers.empty() && windowClients && (*windowClients)[0].remote && (*windowClients)[1].remote,
-            "native Go remains withheld until both pipelined receivers have validated a complete map");
-        ++windowGo; return true;
-    }
-    Check(ready && type == CM::MapAckPacketType, "window test carries map receipts on the native ready channel");
-    CM::MapChunk ack; memcpy(&ack, packet, sizeof(ack));
-    if (loseReply && source == 20 && ack.offset && ack.offset != corruptOffset && ack.offset != lostOffset)
-    { loseReply = false; ++windowDrops; return true; }
-    windowEvents.push_back({ windowNow + windowRtt / 2, source, false,
-        std::vector<BYTE>(static_cast<const BYTE*>(packet), static_cast<const BYTE*>(packet) + length) });
-    return true;
-}
-static void TerminalReceiptTests(const CM::Map& sample)
-{
-    const uint32_t peer = 20, hostId = 10;
-    memcpy(CM::image + 0x1892ac, &peer, 4);
-    CM::controlSendAttempt = CaptureControlAttempt;
-    CM::MapTransfer transfer; transfer.map = std::make_shared<CM::Map>(sample);
-    transfer.identity.revision = 1; transfer.identity.size = static_cast<uint32_t>(sample.bytes.size()); transfer.identity.crc = CM::Checksum(sample.bytes);
-    std::vector<CM::MapFlight> packets;
-    for (uint32_t offset = 0; offset < transfer.identity.size;)
-    { auto packet = CM::PrepareTransferPacket(transfer, offset); offset += packet.header.size; packets.push_back(std::move(packet)); }
-    Check(packets.size() > 2, "multi-packet terminal-confirmation fixture");
-    for (bool wrongFileCrc : { false, true })
-    {
-        CM::ResetNetwork();
-        auto receive = [&](size_t index)
-        {
-            auto packet = packets[index].packet;
-            if (wrongFileCrc) packet[20] ^= 1;
-            uint32_t length = static_cast<uint32_t>(packet.size()); CM::ReceiveNetworkPacket(hostId, hostId, packet.data(), length);
-        };
-        receive(0); CM::PumpTransfers();
-        receive(packets.size() - 1);
-        Check(CM::network.waitingFinal && CM::network.controls.empty() && !CM::network.complete.revision && !CM::network.remote,
-            "an out-of-order terminal packet has no receipt before all holes and complete-file validation");
-        for (size_t i = 1; i + 1 < packets.size(); ++i)
-        { receive(i); if (i + 2 < packets.size()) CM::PumpTransfers(); }
-        if (wrongFileCrc)
-        {
-            Check(CM::network.rejectedAssembly && !CM::network.remote && !CM::network.complete.revision && CM::network.controls.empty(),
-                "valid individual checksums never release a terminal receipt for a bad complete file");
-            receive(packets.size() - 1);
-            Check(CM::network.controls.empty(), "a terminal duplicate cannot confirm a rejected pipelined assembly");
-        }
-        else
-        {
-            Check(!CM::network.waitingFinal && CM::network.remote && CM::network.remote->bytes == sample.bytes && CM::network.controls.size() == 2,
-                "filling the final hole queues its receipt and the stored terminal receipt after byte-for-byte validation");
-            CM::CheckedMapChunk terminal; memcpy(&terminal, CM::network.controls.back().packet.data(), sizeof(terminal));
-            Check(terminal.header.offset == packets.back().header.offset && CM::SameIdentity(terminal.header.identity, transfer.identity),
-                "deferred terminal receipt confirms the original revision and exact packet");
-        }
-    }
-    CM::ResetNetwork();
-    puts("PASS: out-of-order terminal receipt waits for complete-file CRC/parsing; rejected full files cannot confirm through duplicates");
-}
-static void WindowTransferTests(const CM::Map& sample)
-{
-    const uint32_t hostId = 10, firstPeer = 20, secondPeer = 30, none = 0;
-    BYTE* transport = CM::image + 0x176a40;
-    uint32_t savedMode = 0; memcpy(&savedMode, transport + 0x120d4, 4);
-    memcpy(CM::image + 0x1a7698 + 0x108c, &firstPeer, 4); memcpy(CM::image + 0x1a7698 + 0x1090, &secondPeer, 4);
-    CM::enabled = true; CM::selected.reset(new CM::Map(sample));
-    CM::originalHostReceive = CM::originalHostRoundReceive = reinterpret_cast<CM::NativeReceive>(CaptureDispatch);
-    TerminalReceiptTests(sample);
-    CM::transferClock = WindowClock;
-    CM::mapSendAttempt = WindowMapSend; CM::controlSendAttempt = WindowControlSend;
-    for (uint32_t mode : { 2u, 1u }) for (auto dispatcher : { CM::HostReceive, CM::HostRoundReceive }) for (unsigned scenario : { 0u, 1u, 2u })
-    {
-        windowNow = 100000; windowRtt = mode == 1 ? 400 : 160;
-        windowEvents.clear(); windowAttempts = windowSends = windowGo = windowDrops = 0;
-        windowCap = scenario == 2 ? 1000 : 0; corruptOffset = lostOffset = ~0u;
-        corruptData = loseData = loseReply = corruptReply = scenario == 1; dropEverything = false;
-        memcpy(transport + 0x120d4, &mode, 4);
-        CM::ResetNetwork(); CM::network.hosting = true; CM::network.source = hostId; CM::network.transport = transport; CM::network.send = CaptureMap;
-        CM::SelectionChanged();
-        const uint32_t initialLimit = mode == 1 ? CM::IpxWireSize : CM::TcpWireSize;
-        Check(CM::network.transfers.front().wireLimit == initialLimit, "real transport mode selects the TCP/IP or IPX payload cap");
-        const auto identity = CM::network.outgoing;
-        const std::array<uint32_t, 2> go{ 27, 0 };
-        CM::network.pendingGo.assign(reinterpret_cast<const BYTE*>(go.data()), reinterpret_cast<const BYTE*>(go.data()) + sizeof(go));
-        const BYTE* trailer = reinterpret_cast<const BYTE*>(&identity);
-        CM::network.pendingGo.insert(CM::network.pendingGo.end(), trailer, trailer + sizeof(identity));
-        CM::network.goStarted = windowNow - 60000;
-        std::array<CM::NetworkState, 2> clients; windowClients = &clients;
-        unsigned peakPackets = 0, reduced = 0, increased = 0;
-        uint32_t previousCap = initialLimit; bool finished = false;
-        auto host = std::move(CM::network); CM::StopTransferTimer();
-        const DWORD started = windowNow;
-        for (unsigned tick = 0; tick < 15000; ++tick, windowNow += 20)
-        {
-            CM::network = std::move(host); windowAttempts = 0; CM::PumpTransfers(); CM::StopTransferTimer();
-            Check(windowAttempts <= CM::TransferBurst && !CM::network.failed, "window sends are bounded and active transfer preserves queued Go");
-            if (!CM::network.transfers.empty())
-            {
-                const auto& t = CM::network.transfers.front();
-                peakPackets = (std::max)(peakPackets, static_cast<unsigned>(t.flights.size()));
-                size_t bytes = 0; for (const auto& flight : t.flights) bytes += flight.packet.size();
-                Check(t.flights.size() <= CM::TransferWindowPackets && bytes <= CM::TransferWindowBytes,
-                    "in-flight packet count and byte budget remain bounded despite delay or loss");
-                if (t.wireLimit < previousCap) ++reduced;
-                if (t.wireLimit > previousCap) ++increased;
-                previousCap = t.wireLimit;
-            }
-            host = std::move(CM::network);
-            for (size_t i = 0; i < clients.size(); ++i)
-            {
-                const uint32_t peer = i ? secondPeer : firstPeer; memcpy(CM::image + 0x1892ac, &peer, 4);
-                CM::network = std::move(clients[i]); if (!CM::network.controls.empty()) CM::PumpTransfers();
-                CM::StopTransferTimer(); clients[i] = std::move(CM::network);
-            }
-            // Deliver due packets in reverse order to exercise reordering.
-            for (size_t i = windowEvents.size(); i-- > 0;)
-            {
-                if (static_cast<int32_t>(windowNow - windowEvents[i].due) < 0) continue;
-                auto event = std::move(windowEvents[i]); windowEvents.erase(windowEvents.begin() + i);
-                if (event.data)
-                {
-                    const size_t client = event.peer == firstPeer ? 0 : 1;
-                    memcpy(CM::image + 0x1892ac, &event.peer, 4); CM::network = std::move(clients[client]);
-                    uint32_t length = static_cast<uint32_t>(event.packet.size()); CM::ReceiveNetworkPacket(hostId, hostId, event.packet.data(), length);
-                    Check(!CM::network.remote || CM::network.remote->bytes == sample.bytes, "receiver publishes only the exact complete map");
-                    CM::StopTransferTimer(); clients[client] = std::move(CM::network);
-                }
-                else
-                {
-                    CM::network = std::move(host);
-                    const uint32_t length = static_cast<uint32_t>(event.packet.size()) + (mode == 1 ? 4 : 0);
-                    if (corruptReply && !CM::network.transfers.empty())
-                    {
-                        corruptReply = false; auto bad = event.packet; bad.back() ^= 1;
-                        const uint64_t before = CM::network.transfers.front().confirmedBytes;
-                        dispatched = 0; dispatcher(nullptr, nullptr, event.peer, bad.data(), length);
-                        dispatcher(nullptr, nullptr, 99, event.packet.data(), length);
-                        Check(!dispatched && CM::network.transfers.front().confirmedBytes == before,
-                            "wrong checksums and non-recipient replies cannot advance either native host dispatcher");
-                    }
-                    dispatcher(nullptr, nullptr, event.peer, event.packet.data(), length);
-                    const uint64_t before = CM::network.transfers.empty() ? 0 : CM::network.transfers.front().confirmedBytes;
-                    dispatcher(nullptr, nullptr, event.peer, event.packet.data(), length);
-                    Check(CM::network.transfers.empty() || CM::network.transfers.front().confirmedBytes == before,
-                        "duplicate and stale pipelined receipts never count bytes twice");
-                    host = std::move(CM::network);
-                }
-            }
-            if (windowGo == 2 && windowEvents.empty() && host.transfers.empty() && host.controls.empty() && host.pendingGo.empty())
-            { finished = true; break; }
-        }
-        Check(finished && peakPackets > 1 && clients[0].remote && clients[1].remote && clients[0].remote->bytes == sample.bytes &&
-            clients[1].remote->bytes == sample.bytes && CM::SameIdentity(host.broadcastSent, identity),
-            "two pipelined receivers reconstruct the exact map and release Go on both transports and host dispatchers");
-        if (scenario == 0)
-        {
-            const uint64_t stopAndWait = static_cast<uint64_t>(windowSends) * windowRtt;
-            Check(windowNow - started < stopAndWait / 2, "delayed pipelined transfer is more than twice as fast as waiting for each reply");
-            printf("PASS: simulated %s: %lu ms with window, %llu ms with per-packet replies; peak %u packets\n",
-                mode == 1 ? "IPX" : "TCP/IP", static_cast<unsigned long>(windowNow - started), stopAndWait, peakPackets);
-        }
-        if (scenario == 1) Check(!corruptData && !loseData && !loseReply && !corruptReply && !reduced,
-            "transient corrupt/lost packets and replies recover without permanently shrinking packet sizes");
-        if (scenario == 2) Check(windowDrops && reduced && increased, "persistent oversize loss shrinks the window and stable delivery grows its packet limit again");
-        windowClients = nullptr;
-    }
-    // A dead peer still times out; Send success cannot release Go.
-    windowNow = 100000; windowEvents.clear(); dropEverything = true;
-    CM::ResetNetwork(); CM::network.hosting = true; CM::network.source = hostId; CM::network.transport = transport; CM::network.send = CaptureMap;
-    CM::SelectionChanged(); CM::network.pendingGo.assign(8, 0);
-    for (unsigned tick = 0; tick < 1000 && !CM::network.failed; ++tick, windowNow += 20) CM::PumpTransfers();
-    Check(CM::network.failed && CM::network.transfers.empty() && CM::network.pendingGo.empty() && !CM::transferTimer,
-        "a window with no real receipts times out and clears queued Go without a frontend freeze");
-    CM::transferClock = GetTickCount; CM::ResetNetwork(); CM::selected.reset(); CM::enabled = false;
-    CM::mapSendAttempt = CaptureMapAttempt; CM::controlSendAttempt = CaptureControlAttempt; confirmMap = true; dropEverything = false;
-    memcpy(transport + 0x120d4, &savedMode, 4); memcpy(CM::image + 0x1892ac, &none, 4); memcpy(CM::image + 0x1a7698 + 0x1090, &none, 4);
-    puts("PASS: bounded window/bursts, multi-peer delayed/reordered/lost/corrupt data and receipts, adaptive recovery, both dispatchers/envelopes and queued-Go timeout");
+    const uint32_t peer = 20; memcpy(CM::image + 0x1a7698 + 0x108c, &peer, 4);
+    CM::enabled = true; CM::ResetNetwork(); CM::network.hosting = true; CM::network.source = 10;
+    CM::OutgoingMap(&sample); CM::QueueMap(0, true);
+    CM::mapSendAttempt = BusyMapAttempt; busyAttempts = 0; CM::PumpNetworkQueues();
+    Check(busyAttempts == 1 && !CM::network.checks.empty() && !CM::network.failed, "busy reference send returns after one attempt");
+    CM::network.checks.front().lastProgress = GetTickCount() - 15000; CM::PumpNetworkQueues();
+    Check(CM::network.failed && CM::network.checks.empty() && !CM::networkTimer, "missing confirmations time out without disabling the frontend");
+    CM::ResetNetwork(); CM::mapSendAttempt = CaptureMapAttempt;
+    puts("PASS: installed map references use bounded sends and cancellation");
 }
 
 static void HandshakeBackpressureTests(const CM::Map& sample)
 {
+    const uint32_t mode = 2; memcpy(CM::image + 0x188b14, &mode, 4);
     const auto directory = std::filesystem::absolute("Release/Data");
     Check(!std::filesystem::exists(directory), "isolated handshake fixture"); std::filesystem::create_directory(directory);
     const uint32_t peer = 20, secondPeer = 30, count = 2, none = 0;
@@ -945,13 +698,13 @@ static void HandshakeBackpressureTests(const CM::Map& sample)
     std::array<uint32_t, 2> go{ 27, 0 }, prepare{ 29, 0 }, ready{ 28, peer };
     CM::ResetNetwork(); nativeHandshakeCalls = 0; mapPackets.clear();
     CM::SendNetworkPacket(nullptr, 10, 0, true, go.data(), sizeof(go), NativeHandshake);
-    while (!CM::network.transfers.empty()) CM::PumpTransfers();
-    CM::PumpTransfers(); // Move the frozen Go into the control queue.
+    while (!CM::network.checks.empty()) CM::PumpNetworkQueues();
+    CM::PumpNetworkQueues(); // Move the frozen Go into the control queue.
     Check(CM::QueuedGo() && nativeHandshakeCalls == 0, "Go never calls the native blocking send wrapper");
     const auto identity = CM::network.round;
-    busyAttempts = 0; CM::PumpTransfers();
+    busyAttempts = 0; CM::PumpNetworkQueues();
     Check(busyAttempts == 1 && CM::QueuedGo() && !CM::network.failed, "busy Go returns after one attempt and stays queued");
-    CM::controlSendAttempt = CaptureControlAttempt; mapPackets.clear(); CM::PumpTransfers();
+    CM::controlSendAttempt = CaptureControlAttempt; mapPackets.clear(); CM::PumpNetworkQueues();
     std::array<BYTE, 24> taggedReady{};
     memcpy(taggedReady.data(), ready.data(), 8); memcpy(taggedReady.data() + 8, &identity, sizeof(identity));
     Check(CM::QueuedGo() && CM::AcceptReady(peer, taggedReady.data(), sizeof(taggedReady)),
@@ -967,7 +720,7 @@ static void HandshakeBackpressureTests(const CM::Map& sample)
         auto control = packet; const uint32_t type = control.size() == 20 ? 14 : 29; memcpy(control.data(), &type, 4);
         CM::controlSendAttempt = BusyControlAttempt;
         CM::SendNetworkPacket(nullptr, 10, 0, true, control.data(), static_cast<uint32_t>(control.size()), NativeHandshake);
-        busyAttempts = 0; CM::PumpTransfers();
+        busyAttempts = 0; CM::PumpNetworkQueues();
         Check(nativeHandshakeCalls == 0 && busyAttempts == 1 && CM::network.controls.size() == 1,
             "generation and start packets never enter the native retry loop");
         CM::controlSendAttempt = CaptureControlAttempt; DrainMapTransfers();
@@ -979,7 +732,7 @@ static void HandshakeBackpressureTests(const CM::Map& sample)
     {
         ready[0] = type; CM::controlSendAttempt = BusyControlAttempt; readyPacket.clear();
         CM::SendReady(nullptr, nullptr, peer, 10, ready.data(), sizeof(ready));
-        busyAttempts = 0; CM::PumpTransfers();
+        busyAttempts = 0; CM::PumpNetworkQueues();
         Check(nativeHandshakeCalls == 0 && busyAttempts == 1 && CM::network.controls.front().readyChannel,
             "client ready packets use their own channel without the native blocking wrapper");
         CM::controlSendAttempt = CaptureControlAttempt; DrainMapTransfers();
@@ -988,8 +741,8 @@ static void HandshakeBackpressureTests(const CM::Map& sample)
     }
     CM::controlSendAttempt = BusyControlAttempt;
     CM::SendReady(nullptr, nullptr, peer, 10, ready.data(), sizeof(ready));
-    CM::network.controls.front().lastProgress = GetTickCount() - 15000; CM::PumpTransfers();
-    Check(CM::network.failed && CM::network.controls.empty() && !CM::transferTimer && nativeHandshakeCalls == 0,
+    CM::network.controls.front().lastProgress = GetTickCount() - 15000; CM::PumpNetworkQueues();
+    Check(CM::network.failed && CM::network.controls.empty() && !CM::networkTimer && nativeHandshakeCalls == 0,
         "permanently busy readiness cancels without spinning or stale sends");
     CM::ResetNetwork(); CM::controlSendAttempt = CaptureControlAttempt; CM::selected.reset(); CM::enabled = false;
     memcpy(CM::image + 0x1a7698 + 0x1090, &none, 4);
@@ -1021,12 +774,8 @@ static void DirectSendTests(BYTE* frontend)
     std::vector<BYTE> transport(0x13300);
     std::array<void*, 27> vtable{}; vtable[26] = reinterpret_cast<void*>(CaptureDirectPlay);
     void** com = vtable.data(); const void* comObject = &com;
-    CM::MapChunk header;
-    std::vector<BYTE> literal(CM::ChunkSize * 2); for (size_t i = 0; i < literal.size(); ++i) literal[i] = static_cast<BYTE>(i);
-    const auto packed = CM::PackChunk(literal.data(), static_cast<uint32_t>(literal.size()));
-    CM::CheckedMapChunk checked; checked.header.version = 7; checked.header.size = static_cast<uint32_t>(literal.size()); checked.crc = CM::Checksum(literal);
-    std::vector<BYTE> maximum(sizeof(checked) + packed.size()); memcpy(maximum.data(), &checked, sizeof(checked));
-    memcpy(maximum.data() + sizeof(checked), packed.data(), packed.size());
+    CM::MapHeader header;
+    std::vector<BYTE> maximum(CM::MaximumMapMessage); memcpy(maximum.data(), &header, sizeof(header));
     for (bool ready : { false, true })
     {
     BYTE* channel = transport.data() + (ready ? 0x128c8 : 0x12d50);
@@ -1049,7 +798,7 @@ static void DirectSendTests(BYTE* frontend)
         CM::directSend = reinterpret_cast<CM::NativeDirectSend>(frontend + 0x1058b);
         Check(CM::TryPacketSend(transport.data(), 10, 20, maximum.data(), static_cast<uint32_t>(maximum.size()), ready) &&
             directPacket.size() == maximum.size() + reliable * 4 && !memcmp(directPacket.data() + reliable * 4, maximum.data(), maximum.size()),
-            "actual native Send accepts the complete worst-case checked chunk on both channels and envelopes");
+            "actual native Send accepts the bounded path reference on both channels and envelopes");
     }
     }
     CM::directSend = reinterpret_cast<CM::NativeDirectSend>(frontend + 0x1058b);
@@ -1071,7 +820,7 @@ static void ReceiveDiagnosticsTests(BYTE* frontend)
     const auto gamePath = directory / "Data.log", mirrorPath = directory / "TEMP.log";
     CM::traceGamePath = gamePath.wstring(); CM::traceMirrorPath = mirrorPath.wstring(); CM::traceEnabled = true;
     CM::BeginDiagnostics(GetModuleHandleW(nullptr));
-    Check(ReadLog(gamePath) == ReadLog(mirrorPath) && ReadLog(gamePath).find("map-network diagnostics 13 protocol 9") != std::string::npos &&
+    Check(ReadLog(gamePath) == ReadLog(mirrorPath) && ReadLog(gamePath).find("map-network diagnostics 22 protocol 10") != std::string::npos &&
         ReadLog(gamePath).find("CRC32 self-test cbf43926 cbf43926") != std::string::npos &&
         ReadLog(gamePath).find("frontend path") != std::string::npos && ReadLog(gamePath).find("pid=") != std::string::npos,
         "session marker, CRC32 self-test, build, executable path, UTC and PID reach both logs");
@@ -1088,7 +837,7 @@ static void ReceiveDiagnosticsTests(BYTE* frontend)
     const uint32_t active = 1; memcpy(channel.data() + 0x39c, &active, 4); memcpy(channel.data() + 0x3a0, &comObject, 4);
     auto receive = reinterpret_cast<CM::NativeDirectReceive>(frontend + 0x105f7);
     auto filter = reinterpret_cast<CM::NativeSequenceFilter>(frontend + 0x1378d);
-    CM::MapChunk header; header.version = 5; header.identity.revision = 2; header.offset = 0x80000; header.size = CM::ChunkSize;
+    CM::MapHeader header; header.identity.revision = 2;
     for (bool reliable : { false, true })
     {
         directPacket.assign(sizeof(header) + (reliable ? 4 : 0) + 2, 0);
@@ -1100,7 +849,7 @@ static void ReceiveDiagnosticsTests(BYTE* frontend)
             source == 10 && target == 20 && length == directPacket.size() && !memcmp(buffer.data(), directPacket.data(), length),
             "actual Receive detour preserves HRESULT, pointers, lengths and both envelopes without consuming packets");
         const auto log = ReadLog(mirrorPath);
-        Check(log.find("map wire received") != std::string::npos && log.find("offset=00080000") != std::string::npos &&
+        Check(log.find("map wire received") != std::string::npos && log.find("ver=10") != std::string::npos &&
             log.find(reliable ? "seq=00000011" : "seq=00000000") != std::string::npos,
             "wire reception is logged before the native sequence filter for raw and reliable maps");
         directReceiveResult = static_cast<HRESULT>(0x887700be); directReceiveCalls = 0; length = static_cast<uint32_t>(buffer.size());
@@ -1134,17 +883,44 @@ static const void* applicationConnection = nullptr;
 static HANDLE applicationEvent = nullptr;
 static bool applicationQueueEmpty = false;
 static int spawnCalls = 0;
+static bool ipxLobbyClosed = false;
+static unsigned ipxStartSends = 0, ipxSendsAfterClose = 0;
+static unsigned ipxStartAttempts = 0, ipxBusyReplies = 0;
+static bool ipxAlwaysBusy = false;
+static CM::NativeDirectSend ipxNativeSend = nullptr;
+static HRESULT __stdcall CloseIpxLobby(void*) { ipxLobbyClosed = true; return S_OK; }
+static HRESULT __stdcall SendIpxStart(void* object, uint32_t source, uint32_t target, uint32_t flags, const void* packet, uint32_t length)
+{
+    Check(flags == 1 && length >= 4 && CM::PacketType(static_cast<const BYTE*>(packet) + 4, length - 4) == 14,
+        "IPX start uses guaranteed Send and the native reliable sequence envelope");
+    ++ipxStartSends;
+    return CaptureDirectPlay(object, source, target, flags, packet, length);
+}
+static HRESULT __fastcall IpxDirectSend(void* channel, void*, uint32_t source, uint32_t target, uint32_t flags, const void* packet, uint32_t length)
+{
+    ++ipxStartAttempts;
+    if (ipxLobbyClosed) { ++ipxSendsAfterClose; return static_cast<HRESULT>(0x88770078); }
+    // A private SEC_IMAGE mapping has no initialized native CString error
+    // formatter. Inject failures at the Send seam; successes still execute
+    // the real native COM Send entry and the fake provider's vtable slot 26.
+    if (ipxAlwaysBusy || ipxBusyReplies)
+    {
+        if (ipxBusyReplies) --ipxBusyReplies;
+        return static_cast<HRESULT>(0x8877010e);
+    }
+    return ipxNativeSend(channel, source, target, flags, packet, length);
+}
 static intptr_t __cdecl CaptureSpawn(int mode, const char* path, const char* const* arguments, const char* const* environment)
 {
     ++spawnCalls;
     Check(mode == 0 && !strcmp(path, "WORMS2.EXE") && arguments && !strcmp(arguments[0], "worms2.exe") &&
         arguments[1] == nullptr && environment == nullptr, "native IPX execl forwards mode, path, argument list and environment");
-    applicationQueueEmpty = CM::network.controls.empty() && CM::network.transfers.empty(); return 42;
+    applicationQueueEmpty = CM::network.controls.empty() && CM::network.checks.empty(); return 42;
 }
 static HRESULT __stdcall CaptureApplication(void*, uint32_t flags, uint32_t* id, const void* connection, HANDLE event)
 {
     ++applicationCalls; applicationFlags = flags; applicationId = id; applicationConnection = connection; applicationEvent = event;
-    applicationQueueEmpty = CM::network.controls.empty() && CM::network.transfers.empty(); return S_OK;
+    applicationQueueEmpty = CM::network.controls.empty() && CM::network.checks.empty(); return S_OK;
 }
 static void EngineBarrierTests(BYTE* frontend, const CM::Map& map)
 {
@@ -1178,7 +954,7 @@ static void EngineBarrierTests(BYTE* frontend, const CM::Map& map)
     CM::controlSendAttempt = BusyControlAttempt; busyAttempts = 0;
     const DWORD began = GetTickCount();
     Check(run(object.data(), &id, &connection, event) == E_ABORT && applicationCalls == 1 && CM::network.failed &&
-        CM::network.controls.empty() && !CM::transferTimer && GetTickCount() - began < 2000 && busyAttempts <= 60,
+        CM::network.controls.empty() && !CM::networkTimer && GetTickCount() - began < 2000 && busyAttempts <= 60,
         "permanently busy start returns failure within one second before the native infinite engine wait");
     setup(); SetFileAttributesW((directory / "land.dat").c_str(), FILE_ATTRIBUTE_READONLY);
     Check(run(object.data(), &id, &connection, event) == E_ABORT && applicationCalls == 1,
@@ -1199,177 +975,191 @@ static void EngineBarrierTests(BYTE* frontend, const CM::Map& map)
         "actual native IPX execl submits queued start before invoking the spawn entry");
     setup(); CM::SendNetworkPacket(nullptr, 10, 0, true, start.data(), sizeof(start), NativeHandshake);
     CM::controlSendAttempt = BusyControlAttempt;
-    Check(execl(0, "WORMS2.EXE", "worms2.exe", nullptr) == -1 && spawnCalls == 1 && CM::network.failed && !CM::transferTimer,
+    Check(execl(0, "WORMS2.EXE", "worms2.exe", nullptr) == -1 && spawnCalls == 1 && CM::network.failed && !CM::networkTimer,
         "a permanently busy start prevents IPX engine spawn too");
     CM::ResetNetwork(); CM::controlSendAttempt = CaptureControlAttempt;
     Check(execl(0, "WORMS2.EXE", "worms2.exe", nullptr) == 42 && spawnCalls == 2,
         "native IPX launch still passes through when no imported round is active");
     CM::originalSpawn = savedSpawn;
+
+    // The real mode-1 launcher calls Close at 0x35b17 before RunApplication
+    // at 0x35b30. A live provider at the engine barrier hid this bug before.
+    std::vector<BYTE> transport(0x13300);
+    std::array<void*, 27> lobbyVtable{};
+    lobbyVtable[4] = reinterpret_cast<void*>(CloseIpxLobby);
+    lobbyVtable[26] = reinterpret_cast<void*>(SendIpxStart);
+    void** lobbyCom = lobbyVtable.data(); const void* lobbyObject = &lobbyCom;
+    BYTE* lobby = transport.data() + 0x12d50;
+    const uint32_t active = 1;
+    memcpy(lobby + 0x39c, &active, 4); memcpy(lobby + 0x3a0, &lobbyObject, 4);
+    memcpy(transport.data() + 0x120d4, &active, 4);
+    uint32_t savedMode = 0; memcpy(&savedMode, frontend + 0x188b14, 4);
+    DWORD modeProtection = 0; VirtualProtect(frontend + 0x188b14, 4, PAGE_READWRITE, &modeProtection);
+    memcpy(frontend + 0x188b14, &active, 4);
+    using NativeClose = HRESULT (__thiscall*)(void*);
+    const auto close = reinterpret_cast<NativeClose>(frontend + 0x1003f);
+    for (unsigned recipients : { 1u, 2u })
+    {
+        setup(); ipxLobbyClosed = ipxAlwaysBusy = false; ipxBusyReplies = 2;
+        ipxStartSends = ipxSendsAfterClose = ipxStartAttempts = 0;
+        ipxNativeSend = reinterpret_cast<CM::NativeDirectSend>(frontend + 0x1058b);
+        CM::directSend = reinterpret_cast<CM::NativeDirectSend>(IpxDirectSend);
+        CM::controlSendAttempt = CM::TryPacketSend;
+        const uint32_t secondPeer = recipients == 2 ? 30 : 0; memcpy(players + 4, &secondPeer, 4);
+        const uint32_t sequence = 17; memcpy(lobby + 0x438, &sequence, 4);
+        CM::SendNetworkPacket(transport.data(), 10, 0, true, start.data(), sizeof(start), NativeHandshake);
+        Check(ipxStartSends == recipients && ipxStartAttempts == recipients + 2 && CM::network.controls.empty() && !CM::network.failed &&
+            *reinterpret_cast<uint32_t*>(lobby + 0x438) == sequence + recipients,
+            "IPX start reaches every native provider recipient before the send wrapper returns");
+        Check(close(lobby) == S_OK && ipxLobbyClosed, "actual native Close tears down the lobby before the engine call");
+        const int calls = applicationCalls;
+        Check(run(object.data(), &id, &connection, event) == S_OK && applicationCalls == calls + 1 && !ipxSendsAfterClose,
+            "IPX startup survives the native Close-then-RunApplication order without sending after Close");
+    }
+    setup(); ipxLobbyClosed = false; ipxAlwaysBusy = true; ipxBusyReplies = 0;
+    ipxStartSends = ipxStartAttempts = 0;
+    CM::controlSendAttempt = CM::TryPacketSend;
+    const DWORD ipxBegan = GetTickCount();
+    CM::SendNetworkPacket(transport.data(), 10, 0, true, start.data(), sizeof(start), NativeHandshake);
+    Check(CM::network.failed && CM::network.controls.empty() && !CM::networkTimer && !ipxStartSends && ipxStartAttempts <= 60 &&
+        GetTickCount() - ipxBegan < 2000, "IPX start backpressure cancels within one second before native teardown instead of entering an unbounded retry");
+    const int ipxCalls = applicationCalls;
+    Check(run(object.data(), &id, &connection, event) == E_ABORT && applicationCalls == ipxCalls,
+        "a failed early IPX start submission cannot enter the native engine wait");
+    ipxAlwaysBusy = false;
+    CM::directSend = ipxNativeSend;
+    memcpy(players + 4, &savedPlayers[1], 4);
+    memcpy(frontend + 0x188b14, &savedMode, 4); VirtualProtect(frontend + 0x188b14, 4, modeProtection, &modeProtection);
+    CM::ResetNetwork(); CM::controlSendAttempt = CaptureControlAttempt;
     memcpy(players, savedPlayers.data(), sizeof(savedPlayers)); VirtualProtect(players, sizeof(savedPlayers), oldProtection, &oldProtection);
     std::filesystem::remove(directory / "land.dat"); std::filesystem::remove(directory);
-    puts("PASS: actual native engine COM entry, start ordering, bounded busy cancellation, publication failure and unchanged native launch");
+    puts("PASS: native engine launch, IPX Send-before-Close ordering, multiple recipients, busy retries/cancellation, publication failure and unchanged native launch");
 }
 
+static void ReferenceTests(const CM::Map& map)
+{
+    const auto directory = std::filesystem::path(CM::GameDirectory()) / L"Data";
+    Check(!std::filesystem::exists(directory), "isolated reference fixture"); std::filesystem::create_directory(directory);
+    const auto identity = CM::OutgoingMap(&map);
+    const auto packet = CM::ReferencePacket(&map, identity);
+    Check(packet.size() == sizeof(CM::MapReference) + CM::EncodePath(map.relativePath).size() + map.waterPath.size() &&
+        packet.size() < 1200 && packet.size() < map.bytes.size(), "exact reference contains path/settings only, never terrain bytes");
+    CM::MapReference reference; std::unique_ptr<CM::Map> resolved;
+    auto resolve = [&](const std::vector<BYTE>& bytes) { resolved.reset(); return CM::ResolveReference(bytes.data(), static_cast<uint32_t>(bytes.size()), reference, resolved); };
+    Check(resolve(packet) == CM::MapResult::Ready && resolved && resolved->bytes == map.bytes &&
+        CM::Load((directory / L"land.dat").c_str()).bytes == map.bytes, "installed map hash validates and exact bytes publish before readiness");
+    auto edited = map; edited.cavern = !map.cavern; Put(edited.bytes, 16, edited.cavern);
+    Check(CM::ChangeWater(edited, L"Purple"), "edit host water");
+    const auto editedPacket = CM::ReferencePacket(&edited, CM::OutgoingMap(&edited));
+    Check(resolve(editedPacket) == CM::MapResult::Ready && resolved->bytes == edited.bytes &&
+        CM::LoadImported(map.relativePath).bytes == map.bytes, "source hash is checked before applying host style/water without changing installed maps");
+    const auto localPath = std::filesystem::path(CM::ImportedPath(map.relativePath));
+    const auto hidden = std::filesystem::path(localPath.wstring() + L".fixture-backup");
+    std::filesystem::rename(localPath, hidden);
+    Check(resolve(packet) == CM::MapResult::Missing && !resolved && CM::Load((directory / L"land.dat").c_str()).bytes == edited.bytes,
+        "missing exact relative path reports missing and preserves the previous land.dat");
+    std::filesystem::rename(hidden, localPath);
+    auto wrong = map; wrong.cavern = !wrong.cavern; Put(wrong.bytes, 16, wrong.cavern); Check(CM::Publish(wrong, localPath.wstring()), "stage different local map");
+    Check(resolve(packet) == CM::MapResult::Different && !resolved, "same filename with a different hash fails");
+    Check(CM::Publish(map, localPath.wstring()), "restore identical installed map");
+    SetFileAttributesW((directory / L"land.dat").c_str(), FILE_ATTRIBUTE_READONLY);
+    Check(resolve(packet) == CM::MapResult::CannotPublish && !resolved, "read-only land.dat never reports readiness");
+    SetFileAttributesW((directory / L"land.dat").c_str(), FILE_ATTRIBUTE_NORMAL);
+    auto corrupt = packet; Put(corrupt, offsetof(CM::MapReference, sourceCrc), map.sourceCrc ^ 1);
+    Check(resolve(corrupt) == CM::MapResult::Different, "different source CRC fails independently");
+    corrupt = packet; Put(corrupt, offsetof(CM::MapReference, sourceSize), map.sourceSize + 1);
+    Check(resolve(corrupt) == CM::MapResult::Different, "different source size fails independently");
+    corrupt = packet; Put(corrupt, offsetof(CM::MapReference, header) + offsetof(CM::MapHeader, identity) + offsetof(CM::MapIdentity, crc), identity.crc ^ 1);
+    Check(resolve(corrupt) == CM::MapResult::Different, "different final CRC fails independently");
+    corrupt = packet; Put(corrupt, offsetof(CM::MapReference, cavern), 2); Check(resolve(corrupt) == CM::MapResult::Invalid, "invalid border fails");
+    corrupt = packet; Put(corrupt, offsetof(CM::MapReference, pathLength), 0xffffffff); Check(resolve(corrupt) == CM::MapResult::Invalid, "unbounded path length fails");
+    corrupt = packet; corrupt.pop_back(); Check(resolve(corrupt) == CM::MapResult::Invalid, "truncated descriptor fails");
+    corrupt = packet; corrupt.push_back(0); Check(resolve(corrupt) == CM::MapResult::Invalid, "unexpected map payload fails");
+    corrupt = packet; Put(corrupt, offsetof(CM::MapHeader, version), 9); Check(resolve(corrupt) == CM::MapResult::Unsupported, "old file-transfer protocol rejected");
+    for (const wchar_t* unsafe : { L"..\\outside.dat", L"C:\\outside.dat", L"\\\\server\\map.dat", L"x/../map.dat", L"x\\..\\map.dat", L"x\\.\\map.dat", L"x\\\\map.dat", L"x \\map.dat", L"x.\\map.dat", L"map.dat:stream", L"map.txt" })
+        Check(!CM::ValidRelativePath(unsafe), "absolute/traversing/aliased/non-map paths rejected");
+    Check(CM::RelativeImportPath(localPath.c_str()) == map.relativePath, "picker keeps exact relative subfolder and spaces");
+    bool rejected = false;
+    try { CM::RelativeImportPath((std::filesystem::path(CM::GameDirectory()) / L"map.dat").c_str()); } catch (...) { rejected = true; }
+    Check(rejected, "picker refuses files outside Levels/Import");
+    rejected = false;
+    try { CM::RelativeImportPath((std::filesystem::path(CM::GameDirectory()) / L"Levels/Import-other/map.dat").c_str()); } catch (...) { rejected = true; }
+    Check(rejected, "import prefix requires a directory boundary");
+    const std::wstring unicode = L"Online Worms\\\u00e9\u65e5\u672c.dat";
+    Check(CM::DecodePath(CM::EncodePath(unicode)) == unicode, "Unicode path survives UTF-8 on the wire");
+    for (const auto& invalid : { std::string("x\0.dat", 6), std::string("x\xc0\xaf.dat"), std::string("x\xff.dat") })
+    { rejected = false; try { CM::DecodePath(invalid); } catch (...) { rejected = true; } Check(rejected, "invalid UTF-8 and embedded NUL fail"); }
+    const auto reset = CM::ReferencePacket(nullptr, CM::OutgoingMap(nullptr));
+    Check(resolve(reset) == CM::MapResult::Ready && !resolved && reset.size() == sizeof(CM::MapReference), "generated selection uses an empty path reference");
+    CM::ResetNetwork(); std::filesystem::remove(directory / L"land.dat"); std::filesystem::remove(directory);
+    puts("PASS: local path confinement, Unicode, source/final hashes, host edits, missing files, publication failure and no terrain payload");
+}
+struct NetworkEvent { uint32_t source, target; bool ready; std::vector<BYTE> packet; };
+static std::deque<NetworkEvent> events;
+static bool QueueTestMap(void*, uint32_t source, uint32_t target, const void* packet, uint32_t length)
+{ events.push_back({ source, target, false, std::vector<BYTE>(static_cast<const BYTE*>(packet), static_cast<const BYTE*>(packet) + length) }); return true; }
+static bool QueueTestControl(void*, uint32_t source, uint32_t target, const void* packet, uint32_t length, bool ready)
+{ events.push_back({ source, target, ready, std::vector<BYTE>(static_cast<const BYTE*>(packet), static_cast<const BYTE*>(packet) + length) }); return true; }
 static void NetworkTests(const CM::Map& sample)
 {
-    CM::enabled = true;
-    const auto directory = std::filesystem::absolute("Release/Data");
-    Check(!std::filesystem::exists(directory), "isolated network map directory");
-    std::filesystem::create_directory(directory);
-    const auto destination = directory / "land.dat";
-    CM::selected.reset(new CM::Map(sample));
-    CM::ChangeWater(*CM::selected, L"Green");
-    const auto expected = CM::selected->bytes;
-    std::array<uint32_t, 2> go{ 27, 0 }, prepare{ 29, 0 }, ready{ 28, 20 };
-    std::array<BYTE, 132> start{};
-    const uint32_t startType = 14; memcpy(start.data(), &startType, 4); memcpy(start.data() + 20, "FKA1", 4);
-    CM::network = CM::NetworkState{};
-    CM::mapSendAttempt = CaptureMapAttempt;
-    const uint32_t onlinePlayer = 20, onlineCount = 1;
-    memcpy(CM::image + 0x1a7698 + 0x108c, &onlinePlayer, 4);
-    memcpy(CM::image + 0x1a7698 + 0x10d4, &onlineCount, 4);
-    mapPackets.clear();
-    CM::SendNetworkPacket(nullptr, 10, 0, true, go.data(), sizeof(go), CaptureMap);
-    Check(mapPackets.empty() && !CM::network.transfers.empty(), "Go returns without synchronously sending terrain");
-    DrainMapTransfers();
-    Check(mapPackets.size() > 2 && mapPackets.back().size() == 24, "Go transfers complete map before tagged native handshake");
-    const auto firstPackets = mapPackets;
-    for (size_t i = 0; i + 1 < firstPackets.size(); ++i)
-        Check(firstPackets[i].size() <= CM::TransferWireSize + sizeof(CM::CheckedMapChunk) &&
-            CM::PacketType(firstPackets[i].data(), static_cast<uint32_t>(firstPackets[i].size())) == CM::MapPacketType,
-            "map chunks fit the native transport buffer");
-    const auto identity = CM::network.round;
-    auto hostState = std::move(CM::network);
-    CM::network = CM::NetworkState{};
-    const auto receive = [&](const std::vector<BYTE>& packet, uint32_t sender = 10, uint32_t host = 10) {
-        uint32_t length = static_cast<uint32_t>(packet.size());
-        return CM::ReceiveNetworkPacket(sender, host, packet.data(), length);
-    };
-    Check(!receive(firstPackets.front(), 99) && !CM::network.remote, "non-host map chunks ignored");
-    for (size_t i = 0; i + 2 < firstPackets.size(); ++i) Check(!receive(firstPackets[i]), "consume bounded map chunks");
-    Check(!receive(firstPackets.back()) && !CM::NetworkMap(), "incomplete maps cannot enter ready handshake");
-    Check(!receive(firstPackets[firstPackets.size() - 2]) && CM::network.remote && CM::network.remote->bytes == expected,
-        "joining player reconstructs exact palette, collision, spawns, borders and water bytes");
-    uint32_t goLength = static_cast<uint32_t>(firstPackets.back().size());
-    Check(CM::ReceiveNetworkPacket(10, 10, firstPackets.back().data(), goLength) && goLength == 8 && CM::NetworkMap()->bytes == expected,
-        "validated map enters native handshake with trailer stripped");
-    Check(CM::Load(destination.c_str()).bytes == expected, "joining player publishes exact host map");
-    Check(CM::PreviewMap() == CM::network.remote.get(), "joining preview uses host terrain instead of a local selection");
-    CM::originalGenerate = reinterpret_cast<CM::NativeVoid>(NativeGenerate);
-    CM::originalSendReady = reinterpret_cast<CM::NativeSendPlayer>(CaptureReady);
-    std::array<BYTE, 0x44> terrain{};
-    const int before = nativeCalls;
-    for (size_t caller : { 0x3e266u, 0x6445cu })
+    const auto directory = std::filesystem::path(CM::GameDirectory()) / L"Data";
+    Check(!std::filesystem::exists(directory), "isolated network fixture"); std::filesystem::create_directory(directory);
+    const uint32_t hostId = 10, peer = 20, count = 1;
+    memcpy(CM::image + 0x1a7698 + 0x108c, &peer, 4); memcpy(CM::image + 0x1a7698 + 0x10d4, &count, 4);
+    CM::enabled = true; CM::mapSendAttempt = QueueTestMap; CM::controlSendAttempt = QueueTestControl;
+    for (uint32_t mode : { 0u, 1u })
     {
-        terrain[0x38] = 1;
-        CM::GenerateForCaller(terrain.data(), CM::image + caller);
-        Check(nativeCalls == before && terrain[0x38] == 0 && !CM::network.failed, "first-game and next-round clients bypass native landgen");
+        memcpy(CM::image + 0x188b14, &mode, 4);
+        CM::ResetNetwork(); CM::selected.reset(new CM::Map(sample));
+        std::array<uint32_t, 2> go{ 27, 0 }; events.clear();
+        CM::SendNetworkPacket(nullptr, hostId, 0, true, go.data(), sizeof(go), CaptureMap);
+        Check(CM::network.checks.size() == 1 && !CM::network.pendingGo.empty(), "Go waits for one reference confirmation per player");
+        CM::PumpNetworkQueues(); Check(events.size() == 1 && events.front().packet.size() < 1200, "host sends one small descriptor, on either transport");
+        CM::NetworkState host = std::move(CM::network), client;
+        auto reference = events.front(); events.pop_front();
+        CM::network = std::move(client); memcpy(CM::image + 0x1892ac, &peer, 4);
+        uint32_t length = static_cast<uint32_t>(reference.packet.size());
+        Check(!CM::ReceiveNetworkPacket(30, hostId, reference.packet.data(), length) && !CM::network.joining, "non-host map selections rejected");
+        Check(!CM::ReceiveNetworkPacket(hostId, hostId, reference.packet.data(), length) && CM::network.remote &&
+            CM::network.remote->bytes == sample.bytes && CM::SameIdentity(CM::network.complete, host.round), "joiner loads local map and consumes custom selection");
+        CM::PumpNetworkQueues(); Check(events.size() == 1 && events.front().ready && events.front().packet.size() == sizeof(CM::MapReply),
+            "joiner confirms exact published map on its native ready channel");
+        client = std::move(CM::network); CM::network = std::move(host); memcpy(CM::image + 0x1892ac, &hostId, 4);
+        auto ack = events.front(); events.pop_front();
+        Check(!CM::ReceiveMapAck(30, ack.packet.data(), static_cast<uint32_t>(ack.packet.size())), "non-recipient confirmation cannot release Go");
+        auto stale = ack.packet; Put(stale, 12, CM::network.round.revision - 1);
+        Check(!CM::ReceiveMapAck(peer, stale.data(), static_cast<uint32_t>(stale.size())), "stale revision confirmation rejected");
+        Check(CM::ReceiveMapAck(peer, ack.packet.data(), static_cast<uint32_t>(ack.packet.size())), "actual local-map acknowledgement accepted");
+        for (unsigned i = 0; i < 4; ++i) CM::PumpNetworkQueues();
+        Check(CM::network.checks.empty() && events.size() == 1 && CM::PacketType(events.front().packet.data(), static_cast<uint32_t>(events.front().packet.size())) == 27,
+            "matching local map alone releases native Go without any map-data packets");
+        const auto identity = CM::network.round; host = std::move(CM::network);
+        auto startGo = events.front(); events.pop_front(); CM::network = std::move(client); memcpy(CM::image + 0x1892ac, &peer, 4);
+        length = static_cast<uint32_t>(startGo.packet.size());
+        Check(CM::ReceiveNetworkPacket(hostId, hostId, startGo.packet.data(), length) && length == 8 && CM::NetworkMap()->bytes == sample.bytes,
+            "matching Go strips the trailer and freezes local terrain");
+        CM::originalSendReady = reinterpret_cast<CM::NativeSendPlayer>(CaptureReady);
+        std::array<uint32_t, 2> ready{ 28, peer }; CM::SendReady(nullptr, nullptr, peer, hostId, ready.data(), sizeof(ready)); CM::PumpNetworkQueues();
+        Check(events.size() == 1 && events.front().ready && events.front().packet.size() == 24, "native ready retains map identity and nonblocking channel");
+        auto nativeReady = events.front(); events.pop_front(); client = std::move(CM::network); CM::network = std::move(host); memcpy(CM::image + 0x1892ac, &hostId, 4);
+        Check(CM::AcceptReady(peer, nativeReady.packet.data(), static_cast<uint32_t>(nativeReady.packet.size())) &&
+            !CM::AcceptReady(peer, nativeReady.packet.data(), static_cast<uint32_t>(nativeReady.packet.size())), "native start requires the sent Go and rejects duplicate readiness");
+        CM::ResetNetwork(); CM::network.hosting = true; CM::network.source = hostId; CM::OutgoingMap(&sample); CM::QueueMap(0, true); CM::PumpNetworkQueues();
+        CM::MapReply negative; negative.header.type = CM::MapAckPacketType; negative.header.identity = CM::network.outgoing;
+        negative.sourceCrc = sample.sourceCrc; negative.result = CM::MapResult::Missing;
+        Check(CM::ReceiveMapAck(peer, &negative, sizeof(negative)) && CM::network.failed,
+            "a missing-map reply immediately blocks the host from starting");
+        CM::PumpNetworkQueues(); Check(CM::network.checks.empty() && !CM::networkTimer, "negative confirmation cancels pending starts");
+        events.clear(); CM::ResetNetwork();
+        CM::network = std::move(client); CM::network.remote.reset(); CM::network.complete = {};
+        length = static_cast<uint32_t>(startGo.packet.size());
+        Check(!CM::ReceiveNetworkPacket(hostId, hostId, startGo.packet.data(), length), "native Go without a matching validated file is withheld");
+        CM::ResetNetwork();
+        (void)identity;
     }
-    CM::GenerateForCaller(terrain.data(), CM::image + 0x74f0b);
-    Check(nativeCalls == before + 1, "mission generation remains native during network import");
-    CM::SendReady(nullptr, nullptr, 20, 10, ready.data(), sizeof(ready));
-    DrainMapTransfers();
-    Check(readyPacket.size() == 24, "client readiness confirms exact map identity");
-    auto firstReady = readyPacket;
-    SetFileAttributesW(destination.c_str(), FILE_ATTRIBUTE_READONLY);
-    readyPacket.clear();
-    CM::SendReady(nullptr, nullptr, 20, 10, ready.data(), sizeof(ready));
-    Check(readyPacket.empty(), "locked destination cannot acknowledge a network map");
-    SetFileAttributesW(destination.c_str(), FILE_ATTRIBUTE_NORMAL);
-    auto clientState = std::move(CM::network);
-    CM::network = std::move(hostState);
-    CM::originalPrepareTerrain = reinterpret_cast<CM::NativePrepareTerrain>(NativePrepareTerrain);
-    for (size_t caller : { 0x35819u, 0x623e8u })
-    {
-        const int calls = nativeCalls;
-        CM::PrepareTerrainForCaller(terrain.data(), nullptr, CM::image + caller);
-        Check(nativeCalls == calls && !CM::network.generating && CM::Load(destination.c_str()).bytes == expected,
-            "first-game and next-round hosts publish imported map instead of generating terrain");
-    }
-    uint32_t playerCount = 1, player = 20;
-    memcpy(CM::image + 0x1a7698 + 0x10d4, &playerCount, 4);
-    memcpy(CM::image + 0x1a7698 + 0x108c, &player, 4);
-    CM::originalHostReceive = CM::originalHostRoundReceive = reinterpret_cast<CM::NativeReceive>(CaptureDispatch);
-    for (uint32_t reliable : { 0u, 1u })
-    {
-        memcpy(CM::image + 0x188b14, &reliable, 4);
-        for (auto dispatcher : { CM::HostReceive, CM::HostRoundReceive })
-        {
-            CM::network.acknowledgements = {}; dispatched = 0;
-            dispatcher(nullptr, nullptr, 20, ready.data(), sizeof(ready) + reliable * 4);
-            Check(dispatched == 0, "legacy clients cannot advance an imported-map start");
-            auto invalid = firstReady; invalid.back() ^= 1;
-            dispatcher(nullptr, nullptr, 20, invalid.data(), static_cast<uint32_t>(invalid.size()) + reliable * 4);
-            dispatcher(nullptr, nullptr, 99, firstReady.data(), static_cast<uint32_t>(firstReady.size()) + reliable * 4);
-            Check(dispatched == 0, "bad checksum, claimed sender and non-member acknowledgements rejected");
-            dispatcher(nullptr, nullptr, 20, firstReady.data(), static_cast<uint32_t>(firstReady.size()) + reliable * 4);
-            dispatcher(nullptr, nullptr, 20, firstReady.data(), static_cast<uint32_t>(firstReady.size()) + reliable * 4);
-            Check(dispatched == 1, "valid readiness accepted once on both transports and round dispatchers");
-            auto generatedReady = firstReady; const uint32_t generatedType = 30; memcpy(generatedReady.data(), &generatedType, 4);
-            dispatcher(nullptr, nullptr, 20, generatedReady.data(), static_cast<uint32_t>(generatedReady.size()) + reliable * 4);
-            Check(dispatched == 2, "validated generation readiness advances native handshake");
-        }
-    }
-    mapPackets.clear();
-    CM::SendNetworkPacket(nullptr, 10, 0, true, prepare.data(), sizeof(prepare), CaptureMap);
-    DrainMapTransfers();
-    const auto preparePacket = mapPackets.back();
-    CM::SendNetworkPacket(nullptr, 10, 0, true, start.data(), static_cast<uint32_t>(start.size()), CaptureMap);
-    DrainMapTransfers();
-    const auto startPacket = mapPackets.back();
-    Check(startPacket.size() == 148 && !memcmp(startPacket.data(), start.data(), start.size()), "colour map trailer preserves CPU-team start extension and native GUID");
-    hostState = std::move(CM::network); CM::network = std::move(clientState);
-    uint32_t length = static_cast<uint32_t>(preparePacket.size());
-    Check(CM::ReceiveNetworkPacket(10, 10, preparePacket.data(), length) && length == 8, "prepare marker validated before native generation");
-    length = static_cast<uint32_t>(startPacket.size());
-    Check(CM::ReceiveNetworkPacket(10, 10, startPacket.data(), length) && length == start.size(), "start restores unchanged CPU packet length before shared decoder");
-    Check(!receive(std::vector<BYTE>(start.begin(), start.end())), "missing start marker cannot launch an imported round");
-    auto corruptStart = startPacket; corruptStart.back() ^= 1;
-    Check(!receive(corruptStart), "wrong map cannot launch");
-    SetFileAttributesW(destination.c_str(), FILE_ATTRIBUTE_READONLY);
-    Check(!receive(startPacket), "client launch blocked when final publication fails");
-    SetFileAttributesW(destination.c_str(), FILE_ATTRIBUTE_NORMAL);
-    // Malformed terminal chunks must be bounded even for exact multiples of the chunk size.
-    CM::MapChunk malformed; malformed.identity.revision = identity.revision + 1;
-    malformed.identity.size = CM::ChunkSize; malformed.offset = CM::ChunkSize;
-    Check(!CM::ReceiveMapChunk(&malformed, sizeof(malformed)), "zero-byte chunk at end of nonempty map rejected");
-    auto truncated = firstPackets.front(); truncated.resize(sizeof(CM::MapChunk) - 1);
-    Check(!CM::ReceiveMapChunk(truncated.data(), static_cast<uint32_t>(truncated.size())), "truncated chunk header rejected");
-    auto oversize = malformed; oversize.identity.size = static_cast<uint32_t>(CM::MaximumFileSize) + 1;
-    Check(!CM::ReceiveMapChunk(&oversize, sizeof(oversize)), "oversize allocation rejected");
-    CM::network = CM::NetworkState{};
-    for (size_t i = 0; i + 1 < firstPackets.size(); ++i)
-    {
-        auto corrupt = firstPackets[i]; if (i == 1) corrupt.back() ^= 1;
-        receive(corrupt);
-    }
-    Check(!CM::network.remote && !receive(firstPackets.back()), "corrupt map never publishes or becomes ready");
-    CM::network = std::move(hostState);
-    CM::ChangeWater(*CM::selected, L"Red");
-    Check(CM::NetworkMap()->bytes == expected, "editing selection cannot change a round already in handshake");
-    mapPackets.clear(); CM::SendNetworkPacket(nullptr, 10, 0, true, go.data(), sizeof(go), CaptureMap);
-    DrainMapTransfers();
-    Check(CM::network.round.revision != identity.revision && CM::NetworkMap()->bytes == CM::selected->bytes,
-        "next round transfers new selection with a fresh identity");
-    // Native host snapshot is sent before its map, so a late join knows the sender.
-    std::vector<BYTE> snapshot(0x10de); const uint32_t snapshotType = 5; memcpy(snapshot.data(), &snapshotType, 4);
-    mapPackets.clear(); CM::SendNetworkPacket(nullptr, 10, 20, false, snapshot.data(), static_cast<uint32_t>(snapshot.size()), CaptureMap);
-    Check(mapPackets.size() == 1 && !CM::network.transfers.empty(), "late-join snapshot returns before map transfer");
-    DrainMapTransfers();
-    Check(mapPackets.front() == snapshot && mapPackets.size() > 2, "late join receives native snapshot followed by selected map");
-    CM::selected.reset(); mapPackets.clear(); CM::SelectionChanged();
-    DrainMapTransfers();
-    Check(mapPackets.size() == 1 && mapPackets[0].size() == sizeof(CM::CheckedMapChunk), "generated-map reset broadcast uses a bounded checked empty transfer");
-    CM::network = CM::NetworkState{}; CM::SelectNetworkHost(10);
-    receive(mapPackets[0]); Check(!CM::network.remote, "generated-map reset clears remote preview");
-    length = sizeof(go); Check(CM::ReceiveNetworkPacket(10, 10, go.data(), length) && !CM::NetworkMap(), "native round clears imported state");
-    HWND window = CreateWindowW(L"STATIC", L"Network lifecycle fixture", WS_POPUP, 0, 0, 100, 100, nullptr, nullptr, nullptr, nullptr);
-    std::array<BYTE, 0x20> object{}; memcpy(object.data() + 28, &window, sizeof(window));
-    CM::WatchNetworkWindow(object.data()); DestroyWindow(window);
-    Check(!CM::network.hosting && !CM::network.joining && !CM::network.remote && !CM::network.transport, "lobby destruction releases transfer and role state");
-    std::filesystem::remove(destination); std::filesystem::remove(directory);
-    CM::enabled = false;
-    puts("PASS: chunked network map transfer, exact terrain identity, first-game/next-round ready gates, late joins, reset and transport bounds");
+    CM::mapSendAttempt = CaptureMapAttempt; CM::controlSendAttempt = CaptureControlAttempt;
+    CM::selected.reset(); CM::enabled = false; std::filesystem::remove(directory / L"land.dat"); std::filesystem::remove(directory);
+    puts("PASS: TCP/IP and IPX reference/ack/Go/ready flow, sender/revision checks, validation failures and native start gating");
 }
 
 static void SharedNetworkTests(const CM::Map& map)
@@ -1423,12 +1213,12 @@ static void SharedNetworkTests(const CM::Map& map)
                 else SW::ReceiveWeaponPacket(object.data(), nullptr, host, packet.data(), length);
             }
             Check(dispatched == 4 && CM::NetworkMap() && CM::NetworkMap()->bytes == map.bytes,
-                "shared lobby/results receiver consumes chunks and forwards native Go/start on both transports");
+                "shared lobby/results receiver consumes path references and forwards native Go/start on both transports");
             Check(NT::receivedTeams[0].skill == 50 && strcmp(NT::receivedTeams[0].name, "Map CPU") == 0,
                 "CPU-team metadata survives colour map trailer stripping");
             if (!round)
                 Check(SW::secretStocks.front() == 7 && SW::secretStocks.back() == 7 && EO::values[0] == 1,
-                    "weapon and option extensions still decode alongside map transfer");
+                    "weapon and option extensions still decode alongside local map selection");
             if (round)
             {
                 Check(CM::network.window == window, "joining results dispatcher tracks its window");
@@ -1451,7 +1241,7 @@ static void __fastcall NativeGoFixture(void* object, void*)
     ++nativeGoCalls;
     HWND window = *reinterpret_cast<HWND*>(static_cast<BYTE*>(object) + 28);
     EnableWindow(window, FALSE); SetTimer(window, 8, 30000, nullptr);
-    if (expectedGoMap) Check(CM::network.transfers.empty() && CM::NetworkMap() && CM::NetworkMap()->bytes == expectedGoMap->bytes,
+    if (expectedGoMap) Check(CM::network.checks.empty() && CM::NetworkMap() && CM::NetworkMap()->bytes == expectedGoMap->bytes,
         "native Go disables the UI only after the frozen terrain is confirmed");
     const std::array<uint32_t, 2> go{ 27, 0 };
     CM::SendNetworkPacket(CM::image + 0x176a40, 10, 0, true, go.data(), sizeof(go), CaptureMap);
@@ -1485,159 +1275,57 @@ static void HostGoPreflightTests(BYTE* frontend, const CM::Map& map)
         PostMessageW(window, WM_APP + 1, 0, 0); MSG message{};
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
         Check(heartbeats == 1 && IsWindowEnabled(window), "frontend stays enabled and dispatches UI messages during Go preflight");
-        CM::network.goStarted = GetTickCount() - 30000; CM::PumpTransfers();
+        CM::network.goStarted = GetTickCount() - 30000; CM::PumpNetworkQueues();
         Check(!CM::network.failed && CM::network.deferredGo && nativeGoCalls == 0,
-            "a slow map transfer does not spend the native 30-second Go timeout");
+            "a slow map check does not spend the native 30-second Go timeout");
         CM::ChangeWater(*CM::selected, L"Purple"); CM::SelectionChanged();
         Check(CM::network.startMap->bytes == map.bytes, "Go preflight retains the selected bytes when later edits occur");
         const uint32_t latePeer = 30, snapshotType = 5;
         memcpy(frontend + 0x1a7698 + 0x1090, &latePeer, 4);
         std::vector<BYTE> snapshot(0x10de); memcpy(snapshot.data(), &snapshotType, 4);
         CM::SendNetworkPacket(frontend + 0x176a40, host, latePeer, false, snapshot.data(), static_cast<uint32_t>(snapshot.size()), CaptureMap);
-        Check(CM::network.transfers.size() == 2 && CM::network.transfers.back().map->bytes == map.bytes,
+        Check(CM::network.checks.size() == 2 && CM::network.checks.back().packet == CM::ReferencePacket(&map, CM::network.startIdentity),
             "a late join during Go preflight receives the frozen map despite later selection edits");
-        confirmMap = true; for (auto& flight : CM::network.transfers.front().flights) for (auto& delivery : flight.deliveries) delivery.sentAt = GetTickCount() - delivery.retryDelay;
+        confirmMap = true; for (auto& delivery : CM::network.checks.front().deliveries) delivery.sentAt = GetTickCount() - 1000;
         DrainMapTransfers();
         Check(nativeGoCalls == 1 && !IsWindowEnabled(window) && CM::NetworkMap()->bytes == map.bytes &&
             CM::PacketType(mapPackets.back().data(), static_cast<uint32_t>(mapPackets.back().size())) == 27,
-            "confirmed Go enters native startup exactly once with the frozen terrain and no further bulk transfer");
-        // An unchanged next Go confirms its cache reference before disabling UI.
+            "confirmed Go enters native startup exactly once with the frozen terrain and no terrain-data transmission");
+        // An unchanged next Go rechecks its installed path before disabling UI.
         EnableWindow(window, TRUE); KillTimer(window, 8); CM::selected.reset(new CM::Map(map));
         confirmMap = false; go(object.data());
-        Check(IsWindowEnabled(window) && nativeGoCalls == 1 && CM::network.deferredGo && CM::network.transfers.front().reuse,
-            "cache-reference confirmation also precedes native Go");
+        Check(IsWindowEnabled(window) && nativeGoCalls == 1 && CM::network.deferredGo && CM::SameIdentity(CM::network.checks.front().identity, CM::network.startIdentity),
+            "local-path confirmation also precedes native Go");
         const uint32_t cachedLatePeer = 40; memcpy(frontend + 0x1a7698 + 0x1094, &cachedLatePeer, 4);
         CM::SendNetworkPacket(frontend + 0x176a40, host, cachedLatePeer, false, snapshot.data(), static_cast<uint32_t>(snapshot.size()), CaptureMap);
-        Check(CM::network.transfers.size() == 3 && !CM::network.transfers[1].reuse && CM::network.transfers.back().reuse &&
-            CM::SameIdentity(CM::network.transfers.back().identity, CM::network.startIdentity),
-            "late join during cached Go receives full terrain followed by the frozen round reference");
+        Check(CM::network.checks.size() == 2 && CM::SameIdentity(CM::network.checks.back().identity, CM::network.startIdentity),
+            "late join during repeated Go receives the same frozen path reference");
         confirmMap = true; DrainMapTransfers();
-        Check(nativeGoCalls == 2 && CM::NetworkMap()->bytes == map.bytes, "cached Go preserves frozen terrain and enters startup once");
+        Check(nativeGoCalls == 2 && CM::NetworkMap()->bytes == map.bytes, "repeated Go preserves frozen terrain and enters startup once");
         EnableWindow(window, TRUE); KillTimer(window, 8); CM::ResetNetwork(); CM::network.hosting = true;
         confirmMap = false; nativeGoCalls = 0; go(object.data());
-        CM::network.transfers.front().lastProgress = GetTickCount() - 15000; CM::PumpTransfers();
-        Check(CM::network.failed && !CM::network.deferredGo && IsWindowEnabled(window) && nativeGoCalls == 0 && !CM::transferTimer,
+        CM::network.checks.front().lastProgress = GetTickCount() - 15000; CM::PumpNetworkQueues();
+        Check(CM::network.failed && !CM::network.deferredGo && IsWindowEnabled(window) && nativeGoCalls == 0 && !CM::networkTimer,
             "failed map confirmation leaves the frontend enabled and never enters native timeout/generation");
         const auto rejectedIdentity = CM::network.startIdentity;
         go(object.data()); Check(CM::network.deferredGo && !CM::SameIdentity(rejectedIdentity, CM::network.startIdentity),
             "Go can be retried after failed preflight with a fresh revision");
-        CM::PumpTransfers();
-        CM::CheckedMapChunk oldReply; oldReply.header.type = CM::MapAckPacketType; oldReply.header.version = 6;
-        oldReply.header.identity = rejectedIdentity; oldReply.header.size = CM::ChunkSize;
-        oldReply.crc = CM::Checksum(map.bytes.data(), CM::ChunkSize);
-        Check(!CM::ReceiveMapAck(peer, &oldReply, sizeof(oldReply)) && !CM::network.transfers.front().confirmedBytes,
+        CM::PumpNetworkQueues();
+        CM::MapReply oldReply; oldReply.header.type = CM::MapAckPacketType;
+        oldReply.header.identity = rejectedIdentity; oldReply.sourceCrc = map.sourceCrc;
+        Check(!CM::ReceiveMapAck(peer, &oldReply, sizeof(oldReply)) && !CM::network.checks.front().deliveries.front().confirmed,
             "a delayed reply from the failed Go cannot confirm the restarted round");
         DestroyWindow(window);
-        Check(!CM::network.deferredGo && !CM::transferTimer && nativeGoCalls == 0, "closing the lobby cancels deferred native Go before destroying its object");
+        Check(!CM::network.deferredGo && !CM::networkTimer && nativeGoCalls == 0, "closing the lobby cancels deferred native Go before destroying its object");
     }
     expectedGoMap = nullptr; confirmMap = true; CM::ResetNetwork(); CM::selected.reset();
     CM::originalHostGo = savedHostGo; CM::originalHostRoundGo = savedRoundGo;
     memcpy(frontend + 0x1a7698 + 0x1090, &none, 4);
     memcpy(frontend + 0x1a7698 + 0x1094, &none, 4);
     std::filesystem::remove(directory / "land.dat"); std::filesystem::remove(directory);
-    puts("PASS: actual first/next-round Go preflight hooks preserve responsive UI, frozen terrain, cached start, timeout recovery and cancellation");
+    puts("PASS: actual first/next-round Go preflight hooks preserve responsive UI, frozen terrain, repeated start, timeout recovery and cancellation");
 }
 
-static unsigned WireCodecTests(const CM::Map& map)
-{
-    CM::ResetNetwork();
-    CM::MapIdentity identity; identity.revision = 1; identity.size = static_cast<uint32_t>(map.bytes.size()); identity.crc = CM::Checksum(map.bytes);
-    for (size_t offset = 0; offset < map.bytes.size(); offset += CM::ChunkSize)
-    {
-        const uint32_t size = static_cast<uint32_t>((std::min)(size_t(CM::ChunkSize), map.bytes.size() - offset));
-        const auto packed = CM::PackChunk(map.bytes.data() + offset, size);
-        const auto unpacked = CM::UnpackChunk(packed.data(), static_cast<uint32_t>(packed.size()), size);
-        Check(packed.size() <= CM::WireChunkSize && !memcmp(unpacked.data(), map.bytes.data() + offset, size), "network compression preserves every terrain byte");
-        CM::CheckedMapChunk checked; checked.header.version = 6; checked.header.identity = identity;
-        checked.header.offset = static_cast<uint32_t>(offset); checked.header.size = size;
-        checked.crc = CM::Checksum(map.bytes.data() + offset, size);
-        std::vector<BYTE> packet(sizeof(checked) + packed.size()); memcpy(packet.data(), &checked, sizeof(checked));
-        memcpy(packet.data() + sizeof(checked), packed.data(), packed.size());
-        Check(CM::ReceiveMapChunk(packet.data(), static_cast<uint32_t>(packet.size())), "every supplied map chunk passes checked network assembly");
-    }
-    Check(CM::network.remote && CM::network.remote->bytes == map.bytes && CM::SameIdentity(CM::network.complete, identity),
-        "every supplied map reconstructs and validates byte-for-byte through the complete network decoder");
-    unsigned tcpPackets = 0;
-    for (uint32_t limit : { CM::TcpWireSize, CM::IpxWireSize })
-    {
-        CM::ResetNetwork();
-        CM::MapTransfer transfer; transfer.identity = identity; transfer.map = std::make_shared<CM::Map>(map); transfer.wireLimit = limit;
-        unsigned packets = 0;
-        while (transfer.offset < identity.size)
-        {
-            const auto flight = CM::PrepareTransferPacket(transfer, transfer.offset);
-            Check(flight.header.size && flight.packet.size() <= sizeof(CM::CheckedMapChunk) + limit,
-                "TCP/IP and IPX packets make bounded progress within their transport limits");
-            Check(CM::ReceiveMapChunk(flight.packet.data(), static_cast<uint32_t>(flight.packet.size())),
-                "every supplied-map packet passes checksums and bounded assembly on both transports");
-            transfer.offset += flight.header.size; ++packets;
-        }
-        Check(CM::network.remote && CM::network.remote->bytes == map.bytes && CM::SameIdentity(CM::network.complete, identity),
-            "every supplied map reconstructs byte-for-byte with TCP/IP and IPX packet limits");
-        if (limit == CM::TcpWireSize) tcpPackets = packets;
-    }
-    CM::ResetNetwork(); return tcpPackets;
-}
-static void WireCodecBoundsTests()
-{
-    std::vector<BYTE> literal(CM::ChunkSize);
-    for (size_t i = 0; i < literal.size(); ++i) literal[i] = static_cast<BYTE>(i);
-    const auto packed = CM::PackChunk(literal.data(), CM::ChunkSize);
-    Check(packed.size() == CM::WireChunkSize && CM::UnpackChunk(packed.data(), static_cast<uint32_t>(packed.size()), CM::ChunkSize) == literal,
-        "worst-case literals fit the native envelope and round-trip unchanged");
-    for (const auto& bytes : { std::vector<BYTE>{ 127, 1 }, std::vector<BYTE>{ 128 }, std::vector<BYTE>{ 255, 1 }, std::vector<BYTE>{ 0, 1, 0, 2 } })
-    {
-        bool rejected = false;
-        try { CM::UnpackChunk(bytes.data(), static_cast<uint32_t>(bytes.size()), 1); }
-        catch (const std::exception&) { rejected = true; }
-        Check(rejected, "truncated, over-expanding and excess compressed chunks are rejected");
-    }
-    puts("PASS: bounded network compression, all-map byte preservation and malformed compressed packet rejection");
-}
-
-static void RejectedAssemblyTests(const CM::Map& map)
-{
-    CM::ResetNetwork();
-    CM::MapIdentity identity; identity.revision = 2; identity.size = static_cast<uint32_t>(map.bytes.size()); identity.crc = CM::Checksum(map.bytes);
-    std::vector<std::vector<BYTE>> packets;
-    for (uint32_t offset = 0; offset < identity.size; offset += CM::ChunkSize)
-    {
-        CM::CheckedMapChunk checked; checked.header.version = 6; checked.header.identity = identity; checked.header.offset = offset;
-        checked.header.size = (std::min)(CM::ChunkSize, identity.size - offset);
-        checked.crc = CM::Checksum(map.bytes.data() + offset, checked.header.size);
-        const auto packed = CM::PackChunk(map.bytes.data() + offset, checked.header.size);
-        std::vector<BYTE> packet(sizeof(checked) + packed.size()); memcpy(packet.data(), &checked, sizeof(checked));
-        memcpy(packet.data() + sizeof(checked), packed.data(), packed.size()); packets.push_back(std::move(packet));
-    }
-    Check(packets.size() > 2, "multi-chunk failed-assembly fixture");
-    for (size_t i = 0; i < packets.size(); ++i)
-    {
-        auto packet = packets[i];
-        if (i == 1)
-        {
-            // Valid per-chunk CRC but an invalid complete file, reproducing the
-            // old terminal-checksum failure independently of the transport.
-            CM::CheckedMapChunk checked; memcpy(&checked, packet.data(), sizeof(checked));
-            auto bytes = CM::UnpackChunk(packet.data() + sizeof(checked), static_cast<uint32_t>(packet.size() - sizeof(checked)), checked.header.size);
-            bytes[0] ^= 1; checked.crc = CM::Checksum(bytes);
-            const auto packed = CM::PackChunk(bytes.data(), static_cast<uint32_t>(bytes.size()));
-            packet.resize(sizeof(checked) + packed.size()); memcpy(packet.data(), &checked, sizeof(checked));
-            memcpy(packet.data() + sizeof(checked), packed.data(), packed.size());
-        }
-        Check(CM::ReceiveMapChunk(packet.data(), static_cast<uint32_t>(packet.size())) == (i + 1 < packets.size()),
-            "complete-file validation still rejects a wrong map despite valid individual chunks");
-    }
-    Check(CM::network.rejectedAssembly && !CM::network.remote && !CM::network.complete.revision,
-        "failed complete assembly never becomes the confirmed preview or terrain");
-    Check(!CM::ReceiveMapChunk(packets.back().data(), static_cast<uint32_t>(packets.back().size())) && CM::network.rejectedAssembly,
-        "terminal retry cannot falsely confirm a previously rejected map");
-    for (const auto& packet : packets) Check(CM::ReceiveMapChunk(packet.data(), static_cast<uint32_t>(packet.size())),
-        "a fresh first chunk restarts the same failed assembly and accepts the correct retransmission");
-    Check(!CM::network.rejectedAssembly && CM::network.remote && CM::network.remote->bytes == map.bytes && CM::SameIdentity(identity, CM::network.complete),
-        "a failed complete map recovers to the exact original bytes instead of rejecting all future Go attempts");
-    CM::ResetNetwork();
-    puts("PASS: rejected complete-map checksum cannot confirm on a terminal retry and recovers on a fresh transfer");
-}
 
 static void HookTests(const char* path, const CM::Map& map)
 {
@@ -1677,12 +1365,12 @@ static void HookTests(const char* path, const CM::Map& map)
 
 int main(int argc, char** argv)
 {
+    setvbuf(stdout, nullptr, _IONBF, 0);
     try
     {
-        const bool statusOnly = argc == 4 && strcmp(argv[3], "--status-only") == 0;
-        Check(argc == 3 || statusOnly, "supply frontend path and map import directory, optionally --status-only");
+        Check(argc == 3, "supply frontend path and map import directory");
         CM::traceEnabled = false; CM::controlSendAttempt = CaptureControlAttempt;
-        ChecksumTests();
+        LanguageTests(); ChecksumTests();
         INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_WIN95_CLASSES };
         InitCommonControlsEx(&controls);
         std::vector<BYTE> testImage(0x1b6000); CM::image = testImage.data();
@@ -1692,21 +1380,24 @@ int main(int argc, char** argv)
         {
             if (!entry.is_regular_file() || entry.path().extension() != ".dat") continue;
             CM::Map map = CM::Load(entry.path().c_str());
-            if (statusOnly) { EditorTests(argv[1], map); TransferStatusTests(argv[1], map); return 0; }
-            const unsigned packets = WireCodecTests(map);
+            const std::wstring relative = L"Online Worms\\01 Path to Hell.dat";
+            map.relativePath = relative;
+            CM::MapIdentity id; id.revision = 1; id.size = static_cast<uint32_t>(map.bytes.size()); id.crc = CM::Checksum(map.bytes);
+            Check(CM::ReferencePacket(&map, id).size() < 1200, "every map selection has a small fixed metadata footprint");
             if (entry.path().filename() == L"Birthday.dat") Check(CM::Checksum(map.bytes) == 0x3a3314b7,
-                "the reported Birthday map has the independently verified complete-file checksum");
-            if (entry.path().filename() == L"Birthday.dat")
-            {
-                Check(packets <= 16, "Birthday still uses fewer receipt round trips than the original 52");
-                printf("PASS: Birthday uses %u bounded TCP/IP packets instead of 52\n", packets);
-            }
+                "Birthday retains its independently verified complete-file checksum");
             if (!sample) sample.reset(new CM::Map(map));
             ++count;
         }
         Check(sample != nullptr, "found sample terrain");
         printf("PASS: all %u supplied terrain files load with their palettes and object locations\n", count);
-        ParserTests(*sample); WireCodecBoundsTests(); RejectedAssemblyTests(*sample); PublishTests(*sample); EditorTests(argv[1], *sample); TransferStatusTests(argv[1], *sample); NetworkTests(*sample); PacedNetworkTests(*sample); WindowTransferTests(*sample); HandshakeBackpressureTests(*sample); SharedNetworkTests(*sample); HookTests(argv[1], *sample);
+        const auto importRoot = std::filesystem::path(CM::ImportRoot());
+        Check(!std::filesystem::exists(importRoot), "isolated import fixture");
+        std::filesystem::create_directories(importRoot / L"Online Worms");
+        Check(CM::Publish(*sample, CM::ImportedPath(sample->relativePath)), "stage installed colour map");
+        ParserTests(*sample); ReferenceTests(*sample); PublishTests(*sample); EditorTests(argv[1], *sample); NetworkTests(*sample); PacedNetworkTests(*sample); HandshakeBackpressureTests(*sample); SharedNetworkTests(*sample); HookTests(argv[1], *sample);
+        std::filesystem::remove(CM::ImportedPath(sample->relativePath));
+        std::filesystem::remove(importRoot / L"Online Worms"); std::filesystem::remove(importRoot); std::filesystem::remove(importRoot.parent_path());
         return 0;
     }
     catch (const std::exception& error) { fprintf(stderr, "FAIL: %s\n", error.what()); return 1; }

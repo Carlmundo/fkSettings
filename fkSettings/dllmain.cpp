@@ -691,6 +691,7 @@ void AssignLabels()
 {
     SecretWeapons::SetLanguage(lang);
     ExtendedOptions::SetLanguage(lang);
+    ColourMaps::SetLanguage(lang);
     if (lang == "en")
     {
         advancedOptionsLabel = _TEXT("Advanced options");

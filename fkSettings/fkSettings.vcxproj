@@ -165,6 +165,7 @@
   <ItemGroup>
     <ClInclude Include="Hooks.h" />
     <ClInclude Include="ColourMaps.h" />
+    <ClInclude Include="ColourMapsStrings.h" />
     <ClInclude Include="WaterFix.h" />
     <ClInclude Include="SecretWeapons.h" />
     <ClInclude Include="SecretWeaponsStrings.h" />

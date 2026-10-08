@@ -28,6 +28,7 @@
       <Filter>Headers</Filter>
     </ClInclude>
     <ClInclude Include="ColourMaps.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="ColourMapsStrings.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="SecretWeaponsStrings.h">
       <Filter>Headers</Filter>
     </ClInclude>

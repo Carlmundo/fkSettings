@@ -1,18 +1,45 @@
 # Colour map importing
 
-The **Select Level** screen now has an **Import map...** button. Choose a
-complete Worms 2 `.dat` terrain file. The picker initially opens `Levels/Import`
-beside the frontend executable, remembers the last folder for this session, and
-can browse external folders and subdirectories. For this collection, browse to
-`C:\Users\carln\Documents\GitHub\Worms2-Maps\Levels\Import`.
+The **Select Level** screen has an **Import** button using the frontend's
+localized string 447. The same caption is used for the file picker and import
+error dialogs, through the shared `ImportStringId` constant. The button is hidden
+unless the game folder contains a `Levels\Import` directory. With normal maps it sits to the right of the central
+preview, inline with **Invert terrain** on the left; with a colour map, **Import**
+and **Cancel** (string 19) are centred side by side beneath the image, with a
+10-dialog-unit gap between the buttons and their row 11 dialog units below
+**Edit terrain** (1032) to leave more space beneath the preview. The file
+filter uses localized string 357 for **Terrain**. Install complete Worms 2 `.dat` terrain files in `Levels\Import` inside each player's game folder.
+Selection is restricted to that folder and its subdirectories. The picker opens
+there, remembers the last permitted folder for the session, and refuses files
+outside the tree. Absolute network paths, parent traversal and junctions or
+symbolic links inside the import tree are rejected.
+
+The folder-selection error is the owned wide string `strImportFolder` in
+`fkSettings/ColourMapsStrings.h`. `dllmain.cpp` passes the existing `language.txt`
+value to `ColourMaps::SetLanguage` alongside Secret Weapons and Extended Options.
+Translations cover the same 15 codes: `cs`, `de`, `en`, `es`, `es-419`, `fr`, `is`,
+`it`, `nl`, `pl`, `pt`, `pt-br`, `ru`, `sv` and `zh-Hans`. Missing or unknown codes
+use English; a UTF-8 BOM and surrounding whitespace are stripped before matching.
+Both relative-path and picker-folder rejection use this message. It is encoded
+as UTF-8 for exceptions and decoded to Unicode for the dialog, preserving accents,
+Cyrillic and Chinese on Windows XP as well as newer systems.
 
 The imported map replaces the generated thumbnails with a colour preview. Both
 previews match the map's aspect ratio, fill their image area and contain no text.
+The custom preview in Terrain selection extends to the right edge of **Save As...**
+(1023), with its bottom 6 dialog units below the bottom of **Generate** (1031).
+Terrain selection shows a centred, bold heading using localized string 726,
+with the same font size and face as the native Water style and Level style labels
+(**Current terrain:** in English) above the custom image. Generate or Cancel hides this
+heading when normal maps return. An 8-dialog-unit gap separates the heading from
+the image; the image and Import/Cancel row are lowered together to make this space.
 Empty terrain uses the native preview's blue background (RGB 0, 160, 255).
 This affects only the display palette; imported terrain colours and file bytes
 are unchanged.
-Generation controls are disabled while selected, except **Water colour** and
-**Level style**. Level style
+The **Terrain:** label (1028), its dropdown (1019), and the native **Current terrain:**
+label beside **Save As...** (1025) are hidden while a colour map is selected and
+restored on reset. Generation controls are disabled, except **Generate**,
+**Water colour** and **Level style**. Level style
 uses control **1021** and keeps its existing **Open** (string 501) and **Cavern**
 (string 502) options. **< Random >** (string 510) is removed while importing and
 restored on reset. The dropdown initially reflects the imported file. Switching
@@ -26,170 +53,92 @@ path remains intact until you choose a colour. Random entries are unavailable
 during imports. Reset restores the water list, selection and enabled state.
 The **Game controls** tab draws the same imported map in its terrain preview,
 including after switching tabs or choosing another import.
-**Use generated map** returns both previews to native landscape rendering and
-restores the original style list and selection. Control 1022 retains its native
-level list and remains disabled for imports. An imported selection is retained
+**Generate** (1031) clears the imported selection, returns both previews to
+native landscape rendering and restores the original controls, style list and
+selection before running the normal Generate command. **Cancel** restores the
+normal view and controls without running Generate. It is hidden for normal maps.
+Control 1022 retains its native level list and remains disabled
+for imports. An imported selection is retained
 in memory for subsequent local games, even if the source
 file moves or changes. Restarting the frontend clears it.
 
 This implementation supports **local and online games**. The online host chooses
 the map, style and water; joining players receive that selection automatically.
-Import/reset and style/water editing are unavailable to joining players. All
+Import/Cancel/Generate and style/water editing are unavailable to joining players. All
 players must use the updated DLL. Saved-game restoration and remembering imports
 across restarts remain outside this change.
 
 ## Online play
 
-The host compresses 256-byte raw blocks with bounded literal/repeated-byte
-runs, grouping blocks into at most 16 KB of compressed payload for TCP/IP or
-4 KB for IPX. Protocol 9 uses smaller blocks so retries can shrink below the
-old 32 KB raw-block size, even for incompressible maps. The 36-byte header and
-optional four-byte native sequence are additional to the payload cap. Native
-receive-buffer capacity alone is insufficient: the host logs showed missing
-replies for large packets on both transports, including packets over 65,535
-bytes. Birthday uses nine TCP/IP packets or 35 IPX packets at the initial caps;
-every supplied map reconstructs byte-for-byte with both limits.
-Each group's compression and checksum are cached for retries and other recipients.
-The reconstructed file, palette, collision and water data remain byte-identical. A
-20 ms UI timer sends bursts of at most four packets, ending the burst after
-five milliseconds or immediately on transport backpressure. Up to 16 groups
-and 128 KB of packet data can remain in flight; recipients confirm each group
-independently without holding up subsequent packets. The first group is
-confirmed by every recipient before filling the window, so each receiver has
-started its assembly before out-of-order groups can arrive. Compression work
-also yields between groups after five milliseconds. Each send calls the
-validated native DirectPlay Send entry once, preserving the guaranteed flag and
-the reliable channel's sequence envelope without entering the frontend's
-per-packet ACK polling loop. Busy sends stay queued for a later tick. Each
-recipient confirms the exact revision, file checksum, offset, chunk length and
-decoded-group CRC32 on the native client ready channel, using 36-byte headers.
-Corrupt chunks are rejected before modifying the assembly or queuing a receipt,
-so the host retries the affected chunk instead of discovering damage only at
-the end of the file. Send success alone never advances the transfer.
-Custom packets are copied out of the native shared receive buffer before
-logging, UI refresh or decoding, so those operations use stable bytes.
-Unconfirmed groups retry after one second with a fresh native sequence. A
-second missed reply halves the payload cap, down to 512 bytes, and rebuilds the
-outstanding window from the prefix confirmed by every recipient. A single lost
-packet/reply can therefore recover without shrinking the remaining transfer.
-Persistent synchronous Send failures also reduce the cap every two seconds.
-Resizing keeps the same revision and reconfirms smaller groups with every recipient. The receiver
-verifies overlapping bytes and counts each raw block once, allowing recovery
-even when a larger group arrived but its reply was lost. Delayed replies for a
-different group size cannot advance the replacement. After eight groups are
-confirmed, a reduced cap doubles toward its initial transport limit; isolated
-loss no longer leaves the entire map stuck with tiny packets. At the minimum
-cap, retries back off up to eight seconds; a missing confirmation still has
-a 15-second timeout. Receipts are also sent in bounded bursts. This
-recovers lost replies and packets overtaken by native lobby traffic without
-repeatedly submitting a packet the provider cannot deliver. The last
-chunk's receipt is held if it arrives before other chunks, then sent when the
-remaining holes are filled and complete CRC32/file validation succeeds. Native
-lobby snapshots precede
-late-join transfers so clients already know the host's player ID. Host imports,
-water/style changes and generated-map resets update remote previews. Each Go
-freezes the selected map. The first-match and next-round Go handlers defer native
-startup until all transfers and the round's cache reference are confirmed. Native
-Go disables the main frontend and starts its 30-second timeout; neither action
-occurs during bulk transfer. A failed transfer leaves the frontend enabled and
-Go can be retried with a fresh revision, preventing delayed replies from the
-failed attempt from advancing the new round. A rejected complete assembly
-accepts a fresh first chunk and rebuilds its bitmap/bytes; terminal retries alone
-cannot confirm it. Closing the lobby discards the deferred native call.
-Both Terrain selection and Game controls display transfer percentages outside
-the image, with a progress bar and a persistent **Map ready** status after
-validation. Game controls places its status beside native Go. An early Go click
-displays **Game queued**/**Queued** while waiting, then starts automatically
-after confirmation. A failed transfer displays **Retry Go**. Joining players
-see receive progress before the complete preview arrives. Generated/local maps
-hide these controls; page destruction releases them with the native children.
-Status captions paint an opaque background and the current text into a buffer
-before displaying it. This prevents the native transparent static-control skin
-from retaining earlier percentages underneath newer captions.
-If every recipient has confirmed the current map, a 32-byte cache reference gives
-it a fresh round revision without retransmitting the terrain. Clients accept
-that reference only when their complete cached map has the same size and CRC32.
-Edits cannot change the terrain partway through a queued ready handshake.
+Every player must already have the same map installed and use this DLL version.
+No terrain files or image data are transferred. The host sends a small selection
+message containing the exact path relative to `Levels\Import`, the original
+file size and CRC32, the selected Open/Cavern flag and water path, and the resulting
+map's size/CRC32/revision.
 
-Go, generate and start controls (27, 29 and 14) and both client ready replies
-(28 and 30) use that same bounded queue. Client replies retain their separate
-native ready channel. A host accepts readiness only from a recipient whose Go
-has actually been submitted, even if other recipients are still queued.
+For example, selecting `Levels\Import\Online Worms\01 Path to Hell.dat`
+sends `Online Worms\01 Path to Hell.dat`. Each joiner looks under its own game
+folder's `Levels\Import`, preserving folder names and spaces. `Online Worms`
+and `OnlineWorms` are different folder names. Windows filename case rules apply.
+Paths use UTF-8 over the network and wide Windows file APIs, including on XP.
 
-This replaces the original synchronous bulk-send loop that caused the frontend
-to stall after imports and again at Go: the reliable native wrapper waits up to
-200 ms for each recipient's ACK and retries seven times for each chunk. Its
-outer wrappers retry the transport's Busy result indefinitely, which also
-exposed imported-map Go/start to a permanent freeze after pacing the map alone.
-Imported handshakes no longer call those wrappers. Rapid
-map/style/water changes now discard obsolete queued transfers. Closing a lobby,
-the native start timeout and DLL shutdown cancel timer callbacks before transport
-objects disappear. A transfer cancels after 15 seconds without a confirmed chunk;
-Bulk transfer does not spend the native startup timeout. Once native Go starts,
-its queued control has a 25-second deadline within the native 30-second timeout.
+The joining frontend checks the local source file's size and CRC32, applies the
+host's style/water choices in memory, checks the resulting size/CRC32, and writes
+`Data\land.dat` atomically. Only then does it send a 32-byte success reply. The
+installed source file remains untouched. Thus identical unedited installed maps
+still work when the host changes the dropdowns. A failed check returns a specific
+missing-file, hash-mismatch, invalid-map/path, or publication error. A read-only
+`land.dat` is never unlocked automatically.
 
-Clients accept map packets only from the host, enforce the 8 MB bound, assemble
-chunks, check each decoded chunk, and verify the complete CRC32 before parsing
-or publishing terrain. The complete-file check remains mandatory even if all
-individual chunk checks pass.
-The native ready, generation and start packets carry the map revision, size and
-CRC32. Both client ready replies must confirm that identity; the host rejects
-missing, mismatched, non-member and duplicate acknowledgements. Missing chunks,
-corrupt files or clients using an older DLL therefore cannot advance the native
-start handshake. Such attempts use the frontend's existing timeout/cancellation
-behavior; retry Go after every player has the updated DLL and a writable
-`Data/land.dat`.
+Protocol 10 uses a 44-byte reference header followed only by the UTF-8 relative
+path and water resource path. The maximum reference is 1,079 bytes; ordinary
+filenames need around 100 bytes. The XP fixture selects Birthday with an 83-byte
+message. TCP/IP and IPX use the same small messages. Chunking, compression, packet
+windows, size adaptation, map assembly and legacy file-transfer decoding have
+been removed. There is no fallback that sends a missing map. The remaining
+network queues contain only map references, confirmations and native startup
+controls. Their bounded retries and cancellation still keep the frontend
+responsive and preserve the IPX launch ordering.
 
-The host/joiner logs from the previous DLL showed submitted map bytes but no
-complete map at the joiner, followed by a rejected cache reference and Go.
-The installed fkWorm2NAT DLL's inspected hooks change server login, connection
-dialogs, resource lookup and socket keepalive; they do not directly replace the
-terrain send/receive hooks. A transport interaction remains possible and needs
-a live comparison to establish. The confirmation protocol does not assume
-that submitting a packet proves delivery through either connection method.
+Host selection, style and water changes check connected players immediately.
+Native late-join snapshots go first so the joining frontend knows the host's
+player ID; a path reference then loads the selection. Rapid edits discard
+obsolete queued checks. Every Go and next-round Go rechecks the installed files
+with a fresh revision, including retrying the same map after a failure. Delayed
+replies from a previous attempt cannot release the current start. The map and
+settings chosen when Go is clicked remain frozen while checking players.
 
-Both the first match and the results screen's next round bypass native terrain
-generation for the confirmed import. Host/client launch paths republish the same
-frozen bytes immediately before native engine setup. Both the DirectPlay and IPX
-engine launchers submit pending control packets before entering native engine
-launch, allowing at most one second of retries with repaint dispatch. They
-return failure if a send or final publication fails, or if terrain/Go is still
-pending. This keeps a failed final send out of the native infinite engine-event
-wait. Transfers preserve palette,
-collision, objects, Open/Cavern and water settings. Generated maps retain native
-network behavior. Closing the lobby/results window clears remote map and role
-state. Secret weapon, extended option and CPU-team extensions share the send and
-receive hooks; the map trailer is removed before those decoders run.
+The native Go handler disables the UI and starts a 30-second startup timer. It is
+deferred until every player has confirmed its local map. The frontend remains
+responsive while checking. The map status label and progress bar are omitted
+from both tabs. Go during checking queues one start and proceeds automatically
+after confirmation. Missing/different files hold back the game and record the
+reason in the network log. Correct the local installation or unlock `land.dat`,
+then retry Go. Reset/disconnect restores the normal terrain controls.
 
-This has been verified with executable mappings and transport callbacks. A live
-match between separate computers remains a required manual check.
+Reference and reply sends are paced by a 20 ms UI timer and call the validated
+native DirectPlay Send entry once, preserving its guaranteed flag and reliable
+sequence envelope. Busy sends remain queued; they do not enter the frontend's
+blocking ACK polling loop. Unanswered references retry after one second and
+cancel after 15 seconds without a confirmation. Client replies use the native
+ready channel and local player ID. Native Go, prepare and ready controls
+retain their nonblocking queues and map identity trailers. The IPX launcher
+(native mode 1) closes its lobby DirectPlay session before `RunApplication`.
+Its final start packet (14) is therefore submitted inside the send hook, while
+that connection is still open, with a bounded one-second retry budget. Deferring
+it to the engine hook made every Send fail against the closed session and
+cancelled startup, returning to the menus. TCP/IP retains its existing queued
+start and engine gate. Both engine launch paths publish the frozen map and
+withhold startup after a failed submission or while barriers remain queued.
+CPU teams, secret weapons and extended options retain their shared hook routing.
 
-Diagnostics are appended to `Data/fkSettings-map-network.log` beside the game's
-`land.dat` and mirrored to `%TEMP%\fkSettings-map-network.log` on each computer.
-The TEMP copy records Data-file write errors and remains useful when the Data
-copy is locked, unwritable or redirected by Windows. Each frontend launch
-records `map-network diagnostics 13 protocol 9`, its build date/time, executable
-and DLL paths, and installation status for the shared and colour-map hooks.
-Lines include UTC time, process ID and a millisecond tick count.
-The startup `CRC32 self-test cbf43926 cbf43926` records actual and expected
-checksums of `123456789`. The CRC32 table is initialized at compile time: a
-function-local runtime initializer depended on the CRT's thread-local epoch,
-which could be zero in a DLL loaded on XP and leave the table uninitialized.
-That produced `ffffffff` for nonempty chunks and prevented confirmation.
-
-Each custom packet records its sender/recipient, version, map revision, offset,
-raw/wire lengths, native sequence and CRC32. Separate checksum entries compare
-the transmitted/received chunk checksum; checksum rejection records actual and
-expected values. Wire reception is recorded before
-the game's reliable sequence filter; custom packets discarded there have a
-separate entry. Handler receipt, sender/parse rejection, chunk acceptance and
-reply queue/send/acceptance are logged independently. Native Send entry/return
-records its HRESULT and elapsed time, with repeated busy diagnostics limited.
-Go clicks are recorded even when no import or host role is active. The existing
-startup phases cover transfer completion/timeouts, controls, readiness, terrain
-preparation, native Go and engine launch/return. These diagnostics distinguish
-missing delivery from a discarded packet or a missing reply without changing
-the native receive/filter result. Logging failures never prevent play.
+Diagnostics append to `Data\fkSettings-map-network.log` and mirror to
+`%TEMP%\fkSettings-map-network.log`. The marker is
+`map-network diagnostics 22 protocol 10`. Logs include the executable/DLL paths,
+CRC32 first-use self-test (`cbf43926`), requested relative path, local validation
+result, confirmations, native control/start phases and transport mode. CRC32's
+table is initialized at compile time to avoid the XP dynamically-loaded DLL TLS
+initialization issue. Older DLLs cannot confirm protocol 10; update all players.
 
 ## File handling
 
@@ -211,7 +160,8 @@ Source files are never edited. No spawn regeneration occurs.
 
 The importer never changes file attributes. If CTerrain has locked `land.dat`,
 unlock it there first. Failed selection leaves the previous selection and
-destination intact. Failed launch publication reports an error and makes the
+destination intact. Failed publication reports `Error saving Data\land.dat`.
+Failed launch publication makes the
 native local engine launcher return failure before writing game data or starting
 the engine. Publication failures clean up temporary files.
 
@@ -278,97 +228,24 @@ MSBuild.exe tests/ColourMapsXPTests.vcxproj /t:Build /p:Configuration=Release /p
 ./Release/ColourMapsXPTests.exe 'C:/Users/carln/Documents/GitHub/Worms2-Maps/Levels/Import/Worms Armageddon/Birthday.dat'
 ```
 
-The focused XP test uses the DLL's `v141_xp` compiler and C++14 settings. It
-sets the CRT thread-local epoch to zero before the first checksum call, checks
-independent CRC32 vectors, and optionally checks the unmodified Birthday map
-(`3a3314b7`) and its first raw block (`832248dd`), then reconstructs the grouped
-transfer byte-for-byte in three packets. The old guarded initializer
-reproduced the joiner's `ffffffff` result under this test; the compile-time
-table passes. This simulates the initialization failure on the development
-computer; a live XP match remains a manual check.
+The main fixture loads all 232 supplied maps and checks their bounded metadata
+messages. It exercises local source/final hashes, missing and changed files,
+read-only destinations, path confinement, UTF-8, malformed/old descriptors,
+Open/Cavern and water edits, and generated-map resets. TCP/IP/IPX fixtures run
+reference/reply/Go/ready flows and check sender IDs, revisions and native launch
+gates. Shared dispatcher tests cover CPU teams, weapons and options. Native
+dialog fixtures check both previews, dropdowns and the absence of map status
+labels and progress bars.
+Actual frontend instructions are mapped privately to verify all 18 hook sites,
+Go preflight, subsequent rounds, both engine launch barriers and code restoration.
+The IPX regression uses the actual native Send, Close and RunApplication
+entries, closing the provider before engine startup as the launcher does. It
+covers one/multiple recipients, transient busy sends without advancing the
+sequence, bounded permanent failure and no sends after the lobby closes.
 
-Automated checks load all 234 supplied maps, validate malformed-file rejection
-and bounded Team17 decompression, verify indexed palette rendering,
-byte-identical atomic writes and read-only failure cleanup, exercise local
-generation bypass and the launch failure gate, and load actual Select Level and
-Game controls resources to test shared palette rendering, aspect ratios,
-full-image rendering without text or borders, Open/Cavern and water changes,
-case-insensitive water matching, unknown resources, tab switches and restoration
-of native dropdown contents, item data and preview geometry on reset. Water edits
-exercise growing and shrinking paths, outer-size updates, malformed-field
-rejection and byte-preservation of all preceding terrain data.
-Fixtures execute the supplied normal Go and next-round CALL instructions at
-their original mapped addresses, with MFC dependencies replaced in the private
-mapping. They verify local caller recognition, native-generation bypass, final
-publication after a staged stale-map overwrite, native network generation and
-native generation after reset. Eighteen hooks install and restore in a
-private, non-running executable mapping. Extended-options tests also verify
-simultaneous installation with shared CRT/network, network-team and option hooks.
-Run that integration check with
-`./Release/ExtendedOptionsTests.exe 'D:/Games/Worms 2/frontend.exe' --hooks-only`.
-The full extended-options suite currently fails its existing "remaining
-untranslated labels stay blank" assertion; the unchanged HEAD test harness
-reproduces the same failure. The colour-map suite, hook integration checks and
-network-team suite pass. The existing secret-weapon suite currently fails its
-native-translation assertion; its network tests also expect stock 100 although
-the production maximum is 99. Those settings/translations were not changed for
-online maps.
-
-Network fixtures cover complete/missing/corrupt transfers, both transport length
-conventions, late joins, resets, frozen-round selections, read-only destinations,
-first-match and next-round ready replies, launch publication, remote preview
-selection and window cleanup. Additional regressions verify real Windows timer
-delivery alongside UI messages, one-attempt backpressure, multiple recipients,
-late joins during a transfer, coalesced edits, immutable pending Go, cache-reference
-validation, stale ready rejection and cancellation. Confirmation regressions
-exchange actual map/receipt packets between independent host and joiner states,
-drop chunks and replies, reject wrong offsets and senders, exercise both host
-dispatchers and transport length conventions, and withhold Go until the entire
-validated map is confirmed. A missing reply times out even when Send succeeds;
-native generation controls stay withheld after cancellation. A private executable mapping
-also executes both Go detours against a UI-disable callback, proving that slow
-bulk transfer leaves the window enabled, retains frozen bytes, does not spend
-the native Go timer, starts exactly once after confirmation, and cancels on
-failure/window destruction. Every supplied map reconstructs byte-for-byte
-through the checked network decoder, including the reported Birthday map and
-its independently verified CRC32. Corrupted, well-formed compressed chunks get
-no receipt and recover on retransmission. Full-file checksum rejection remains
-enforced even with valid per-chunk checks, and the same failed assembly can
-restart from its first chunk. Retried Go revisions reject stale receipts.
-Protocol 6 and protocol 9 reconstruct all supplied maps; protocol 9 is checked
-with both the TCP/IP and IPX payload limits. Window regressions use a simulated
-clock and delayed, reordered delivery to two independent receivers, through
-both native host dispatchers and transport length conventions. They cover lost
-data/replies, valid compressed corruption, corrupt/non-recipient/duplicate
-receipts, successful Send calls that silently lose oversized packets, shrinking
-and regrowing caps, window/burst bounds, and a dead peer's bounded timeout.
-The terminal receipt is explicitly withheld until full validation, including
-when the last packet arrives before missing data; valid per-group checksums
-cannot confirm a wrong complete-file CRC. An active transfer does not spend
-the queued-Go startup deadline. The XP-toolset regression also
-reconstructs Birthday at 16 KB, 4 KB and 512-byte payload caps. Native-dialog tests verify
-confirmed-byte percentages, queued starts, receiving/ready/failure captions,
-text fitting, placement outside the image/Go/team list, and disconnect cleanup.
-Repaint tests use a transparent parent brush and compare several successive
-captions with a fresh render of the final caption on both native dialogs.
-Run the focused UI checks with the colour-map test command above followed by
-`--status-only`.
-Worst-case literals and malformed compressed runs are bounded.
-A private executable mapping
-executes the actual native DirectPlay Send entry against a COM fixture for both
-transport envelopes and validates sequence continuity. Native Receive and
-sequence-filter detours also execute against a COM fixture, preserving payloads,
-lengths, HRESULTs, duplicate rejection and sequence advancement. Logging tests
-verify the session marker, both log copies and recovery from a read-only Data
-log. They execute the real shared send/lobby/results
-detours with map and CPU metadata together, and verify weapon/option decoding
-alongside map transfer.
-Busy-send regressions cover every imported handshake type and per-recipient
-readiness. Fixtures execute the hooked native RunApplication entry against a
-COM implementation and the IPX execl call against a spawn callback, verifying
-start ordering, one-second busy cancellation, preserved arguments, failed
-publication and unchanged launch behavior without an imported round.
-
-The built DLL is `Release/fkSettings.dll`; it has not been installed into the
-game. Actual frontend skin rendering, high-DPI interaction, Windows XP execution
-and playing a complete engine match require the checks in `tests/ManualTests.md`.
+The focused XP test uses the production `v141_xp` compiler and C++14 settings. It
+sets the CRT TLS epoch to zero before the first CRC32 call, checks known vectors,
+round-trips Unicode filenames, and validates/publishes Birthday from a local
+installed file using an 83-byte reference. These fixtures run on the development
+PC; live multiplayer play on XP, TCP/IP and IPX still requires the manual checks
+in `tests/ManualTests.md`.

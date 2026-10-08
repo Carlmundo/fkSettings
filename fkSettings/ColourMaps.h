@@ -1,11 +1,13 @@
 #pragma once
 #include <cstdint>
+#include <string>
 
 namespace ColourMaps
 {
+    void SetLanguage(const std::string& language);
     void BeginDiagnostics(void* module);
     void ReportNetworkHooks(bool lobby, bool round);
-    // MinHook must be initialized; online transfer uses the shared packet hooks.
+    // MinHook must be initialized; local map checks use the shared packet hooks.
     bool Install();
     void Shutdown(); // Cancel timer callbacks before the DLL is unloaded.
     using NetworkSend = void (*)(void*, uint32_t, uint32_t, bool, const void*, uint32_t);
