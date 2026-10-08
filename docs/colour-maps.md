@@ -112,8 +112,45 @@ The native Go handler disables the UI and starts a 30-second startup timer. It i
 deferred until every player has confirmed its local map. The frontend remains
 responsive while checking. The map status label and progress bar are omitted
 from both tabs. Go during checking queues one start and proceeds automatically
-after confirmation. Missing/different files hold back the game and record the
-reason in the network log. Correct the local installation or unlock `land.dat`,
+after confirmation. Missing/different files hold back the game.
+Both sides receive localized error windows: the
+host sees a single heading and one compact row per failing player, only after
+clicking Start Game. In English the list reads:
+
+```text
+The following players are unable to use your map:
+Carl2 (File not found)
+Carl3 (File mismatch)
+```
+
+Known player names appear without IDs. If a name is unavailable, the localized
+Player label and ID identify that row. Host warnings omit the map path; joiners
+retain their game-relative installation path. Changed failures replace the
+player's existing row, preserving one heading and one window.
+Background selection checks and late-join checks never open host warnings,
+including joins after an earlier failed start. Start checks use a fresh revision
+and retain their own recipients so delayed replies from that attempt are still
+reported. The affected joiner sees the reason and a game-relative path starting
+at `Levels\Import`; its drive and game-folder prefix are omitted.
+Missing files and hash/size mismatches have distinct messages; invalid maps and
+publication failures are reported too. All colour-map errors, including import
+and local save failures, use Windows' native `MessageBoxW` error dialog with its
+standard icon, font, spacing and OK button. Each warning has an independent UI
+worker: the frontend call returns immediately, and the dialog has no cross-thread
+owner, so it never disables the lobby. It is centred over the frontend without
+changing Windows' layout. Windows supplies the OK caption in the OS language;
+string 19 remains used only by the terrain Cancel button.
+Network warnings are scheduled after packet handling. Updates reuse the same
+worker, which closes the old native dialog and recreates it with the latest
+message so Windows lays out all rows correctly. Only one dialog for that warning
+is present at a time. A changed failure replaces its existing player row.
+Cancellation, reset and owner destruction post a close request without waiting
+on the frontend thread. A held module reference keeps DLL code valid until the
+worker finishes; shutdown never joins workers under the loader lock.
+Repeated failures for the same player, selection and reason are shown once; a
+fresh Go attempt checks and reports again. New selections, successful joiner
+validation and lobby closure close obsolete network warnings.
+There is no additional success label or progress bar. Correct the local installation or unlock `land.dat`,
 then retry Go. Reset/disconnect restores the normal terrain controls.
 
 Reference and reply sends are paced by a 20 ms UI timer and call the validated
@@ -132,9 +169,13 @@ start and engine gate. Both engine launch paths publish the frozen map and
 withhold startup after a failed submission or while barriers remain queued.
 CPU teams, secret weapons and extended options retain their shared hook routing.
 
-Diagnostics append to `Data\fkSettings-map-network.log` and mirror to
+File diagnostics are disabled by default. The release DLL creates or appends to
+neither `Data\fkSettings-map-network.log` nor `%TEMP%\fkSettings-map-network.log`.
+Existing log files are left in place. Diagnostics can be enabled in the source
+for troubleshooting; the automated diagnostics fixture opts in explicitly.
+When enabled, diagnostics append to `Data\fkSettings-map-network.log` and mirror to
 `%TEMP%\fkSettings-map-network.log`. The marker is
-`map-network diagnostics 22 protocol 10`. Logs include the executable/DLL paths,
+`map-network diagnostics 26 protocol 10`. Logs include the executable/DLL paths,
 CRC32 first-use self-test (`cbf43926`), requested relative path, local validation
 result, confirmations, native control/start phases and transport mode. CRC32's
 table is initialized at compile time to avoid the XP dynamically-loaded DLL TLS
@@ -235,7 +276,12 @@ Open/Cavern and water edits, and generated-map resets. TCP/IP/IPX fixtures run
 reference/reply/Go/ready flows and check sender IDs, revisions and native launch
 gates. Shared dispatcher tests cover CPU teams, weapons and options. Native
 dialog fixtures check both previews, dropdowns and the absence of map status
-labels and progress bars.
+labels and progress bars. Alert tests cover three players, delayed negative replies,
+missing/hash failures on both sides, local player-name lookup and ID fallback,
+retransmission deduplication, native dialog class/OK controls on separate UI
+threads, host Start-only checks and late-join suppression, shortened joiner paths,
+rapid updates on one worker, cancellation before creation and owner destruction,
+acknowledgements while a popup is open and cleanup on new selections/disconnect.
 Actual frontend instructions are mapped privately to verify all 18 hook sites,
 Go preflight, subsequent rounds, both engine launch barriers and code restoration.
 The IPX regression uses the actual native Send, Close and RunApplication

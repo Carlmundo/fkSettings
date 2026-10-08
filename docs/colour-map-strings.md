@@ -62,118 +62,150 @@ Water names come from the native water list and the imported file's final water 
 | `sv` | Välj en .dat-fil i spelets Levels\Import-mapp. |
 | `zh-Hans` | 请选择游戏 Levels\Import 文件夹中的 .dat 文件。 |
 
+## Translated network alerts
+
+These eleven additional strings use the same `language.txt` selection, 15 language
+codes, BOM/whitespace handling and English fallback as `strImportFolder`. All
+translations are in ColourMapsStrings.h. Error titles reuse frontend string 447.
+The host popup uses one heading and one player-name row with a short reason in
+parentheses. IDs appear only as a fallback when a name is unavailable. Host
+warnings omit the map path and only appear for Start Game checks. Each joiner
+sees the detailed reason and required path starting at Levels\Import, without a
+drive or game-folder prefix. Warnings use Windows' native error message box on
+an independent UI thread; later failures replace the dialog on that same worker,
+and changed reasons update their existing player row. Windows supplies the
+standard OK caption from the OS language; no additional frontend resource ID is
+used for dismissing errors.
+
+| Variable | English message |
+| --- | --- |
+| `strHostMapError` | The following players are unable to use your map: |
+| `strLocalMapError` | You cannot use the host's map. |
+| `strPlayer` | Player |
+| `strMissingMap` | The map file is missing. |
+| `strDifferentMap` | The map does not match the host's version. |
+| `strInvalidMap` | The map file or path is invalid. |
+| `strCannotSaveMap` | Error saving Data\land.dat |
+| `strFileNotFound` | File not found |
+| `strFileMismatch` | File mismatch |
+| `strInvalidFile` | Invalid file |
+| `strSaveFailed` | Save failed |
+
 ## Validation and internal exception messages
 
-These 31 unique messages are hardcoded in English. The folder-selection error is translated separately below. File-selection and terrain-validation exceptions can appear in the Import error dialog. Network queue/encoding exceptions are handled internally; they do not all become visible popups.
+These 31 unique messages are hardcoded in English. The folder-selection and network alerts are translated separately above. File-selection and terrain-validation exceptions can appear in the Import error dialog. Network queue/encoding exceptions are handled internally; they do not all become visible popups.
 
 | Message | Source |
 | --- | --- |
-| `Truncated terrain file.` | [ColourMaps.cpp:80](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:80) |
-| `Invalid terrain resource path.` | [ColourMaps.cpp:91](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:91) |
-| `Missing terrain image.` | [ColourMaps.cpp:101](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:101) |
-| `Expected an 8-bit foreground and 1-bit terrain masks.` | [ColourMaps.cpp:112](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:112) |
-| `Invalid image palette.` | [ColourMaps.cpp:117](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:117) |
-| `The foreground has no palette.` | [ColourMaps.cpp:127](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:127) |
-| `This frontend supports standard 1920 x 696 terrain files.` | [ColourMaps.cpp:130](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:130) |
-| `Image exceeds its dimensions.` | [ColourMaps.cpp:141](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:141) |
-| `Invalid compressed terrain image.` | [ColourMaps.cpp:151](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:151) |
-| `Incomplete compressed terrain image.` | [ColourMaps.cpp:154](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:154) |
-| `Incorrect terrain image size.` | [ColourMaps.cpp:166](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:166) |
-| `Foreground index exceeds its palette.` | [ColourMaps.cpp:170](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:170) |
-| `Terrain file is too large.` | [ColourMaps.cpp:177](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:177) |
-| `Not a complete Worms 2 LND terrain file.` | [ColourMaps.cpp:182](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:182) |
-| `Invalid cavern flag.` | [ColourMaps.cpp:186](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:186) |
-| `Expected 18 to 32 object locations.` | [ColourMaps.cpp:189](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:189) |
-| `Object location is outside the map.` | [ColourMaps.cpp:194](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:194) |
-| `Unexpected trailing terrain data.` | [ColourMaps.cpp:201](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:201) |
-| `Cannot open the selected terrain file.` | [ColourMaps.cpp:244](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:244) |
-| `Cannot read a complete terrain file (maximum 8 MB).` | [ColourMaps.cpp:255](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:255) |
-| `The imported map path is too long.` | [ColourMaps.cpp:501](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:501) |
-| `Imported map folders cannot use junctions or symbolic links.` | [ColourMaps.cpp:508](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:508) |
-| `Invalid relative map path.` | [ColourMaps.cpp:527](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:527) |
-| `Invalid map path encoding.` | [ColourMaps.cpp:529](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:529) |
-| `Cannot schedule the local map check.` | [ColourMaps.cpp:729](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:729) |
-| `Oversize terrain handshake packet.` | [ColourMaps.cpp:733](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:733) |
-| `Too many pending terrain handshake packets.` | [ColourMaps.cpp:734](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:734) |
-| `The map must be inside Levels\Import.` | [ColourMaps.cpp:770](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:770) |
-| `Map path is too long.` | [ColourMaps.cpp:780](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:780) |
-| `Too many pending map checks.` | [ColourMaps.cpp:790](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:790) |
-| `Error saving Data\land.dat` | [ColourMaps.cpp:1664](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1664) |
+| `Truncated terrain file.` | [ColourMaps.cpp:248](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:248) |
+| `Invalid terrain resource path.` | [ColourMaps.cpp:259](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:259) |
+| `Missing terrain image.` | [ColourMaps.cpp:269](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:269) |
+| `Expected an 8-bit foreground and 1-bit terrain masks.` | [ColourMaps.cpp:280](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:280) |
+| `Invalid image palette.` | [ColourMaps.cpp:285](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:285) |
+| `The foreground has no palette.` | [ColourMaps.cpp:295](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:295) |
+| `This frontend supports standard 1920 x 696 terrain files.` | [ColourMaps.cpp:298](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:298) |
+| `Image exceeds its dimensions.` | [ColourMaps.cpp:309](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:309) |
+| `Invalid compressed terrain image.` | [ColourMaps.cpp:319](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:319) |
+| `Incomplete compressed terrain image.` | [ColourMaps.cpp:322](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:322) |
+| `Incorrect terrain image size.` | [ColourMaps.cpp:334](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:334) |
+| `Foreground index exceeds its palette.` | [ColourMaps.cpp:338](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:338) |
+| `Terrain file is too large.` | [ColourMaps.cpp:345](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:345) |
+| `Not a complete Worms 2 LND terrain file.` | [ColourMaps.cpp:350](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:350) |
+| `Invalid cavern flag.` | [ColourMaps.cpp:354](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:354) |
+| `Expected 18 to 32 object locations.` | [ColourMaps.cpp:357](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:357) |
+| `Object location is outside the map.` | [ColourMaps.cpp:362](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:362) |
+| `Unexpected trailing terrain data.` | [ColourMaps.cpp:369](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:369) |
+| `Cannot open the selected terrain file.` | [ColourMaps.cpp:412](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:412) |
+| `Cannot read a complete terrain file (maximum 8 MB).` | [ColourMaps.cpp:423](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:423) |
+| `The imported map path is too long.` | [ColourMaps.cpp:834](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:834) |
+| `Imported map folders cannot use junctions or symbolic links.` | [ColourMaps.cpp:841](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:841) |
+| `Invalid relative map path.` | [ColourMaps.cpp:860](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:860) |
+| `Invalid map path encoding.` | [ColourMaps.cpp:862](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:862) |
+| `Cannot schedule the local map check.` | [ColourMaps.cpp:1063](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1063) |
+| `Oversize terrain handshake packet.` | [ColourMaps.cpp:1067](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1067) |
+| `Too many pending terrain handshake packets.` | [ColourMaps.cpp:1068](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1068) |
+| `The map must be inside Levels\Import.` | [ColourMaps.cpp:1105](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1105) |
+| `Map path is too long.` | [ColourMaps.cpp:1115](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1115) |
+| `Too many pending map checks.` | [ColourMaps.cpp:1125](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1125) |
+| `Error saving Data\land.dat` | [ColourMaps.cpp:1159](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1159) |
 
 ## Diagnostic/debug text
+
+Logging is disabled by default. These diagnostics are only emitted if enabled
+in the source for troubleshooting; the release DLL creates no Data or TEMP log.
 
 These are written to the network logs or debugger, rather than displayed as frontend captions. Repeated strings appear once. Numeric values, map paths and timestamps are appended at runtime.
 
 | Text | Source |
 | --- | --- |
-| `joiner host selected` | [ColourMaps.cpp:457](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:457) |
-| `transport mode` | [ColourMaps.cpp:458](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:458) |
-| `NAT module loaded` | [ColourMaps.cpp:459](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:459) |
-| `map wire received` | [ColourMaps.cpp:635](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:635) |
-| `native map sequence dropped` | [ColourMaps.cpp:648](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:648) |
-| `map Send enter` | [ColourMaps.cpp:699](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:699) |
-| `map Send returned` | [ColourMaps.cpp:703](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:703) |
-| `start Send returned` | [ColourMaps.cpp:704](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:704) |
+| `joiner host selected` | [ColourMaps.cpp:790](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:790) |
+| `transport mode` | [ColourMaps.cpp:791](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:791) |
+| `NAT module loaded` | [ColourMaps.cpp:792](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:792) |
+| `map wire received` | [ColourMaps.cpp:968](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:968) |
+| `native map sequence dropped` | [ColourMaps.cpp:981](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:981) |
+| `map Send enter` | [ColourMaps.cpp:1033](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1033) |
+| `map Send returned` | [ColourMaps.cpp:1037](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1037) |
+| `start Send returned` | [ColourMaps.cpp:1038](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1038) |
 | `fkSettings: Local map check failed; network start withheld.` | [ColourMaps.cpp:723](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:723) |
-| `control queued` | [ColourMaps.cpp:748](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:748) |
-| `host local map` | [ColourMaps.cpp:795](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:795) |
-| `Go clicked` | [ColourMaps.cpp:812](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:812) |
-| `Go waiting for map` | [ColourMaps.cpp:837](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:837) |
-| `Go preparation failed` | [ColourMaps.cpp:840](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:840) |
-| `local map check failed` | [ColourMaps.cpp:860](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:860) |
-| `map reply accepted` | [ColourMaps.cpp:863](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:863) |
-| `local map confirmed` | [ColourMaps.cpp:873](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:873) |
-| `map confirmation timeout` | [ColourMaps.cpp:889](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:889) |
-| `Go timeout` | [ColourMaps.cpp:916](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:916) |
-| `native Go enter` | [ColourMaps.cpp:930](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:930) |
-| `native Go returned` | [ColourMaps.cpp:932](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:932) |
-| `control timeout` | [ColourMaps.cpp:947](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:947) |
-| `map reply sent` | [ColourMaps.cpp:956](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:956) |
-| `control sent` | [ColourMaps.cpp:958](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:958) |
+| `control queued` | [ColourMaps.cpp:1082](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1082) |
+| `host local map` | [ColourMaps.cpp:1130](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1130) |
+| `Go clicked` | [ColourMaps.cpp:1148](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1148) |
+| `Go waiting for map` | [ColourMaps.cpp:1173](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1173) |
+| `Go preparation failed` | [ColourMaps.cpp:1176](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1176) |
+| `local map check failed` | [ColourMaps.cpp:1198](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1198) |
+| `map reply accepted` | [ColourMaps.cpp:1201](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1201) |
+| `local map confirmed` | [ColourMaps.cpp:1218](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1218) |
+| `map confirmation timeout` | [ColourMaps.cpp:1234](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1234) |
+| `Go timeout` | [ColourMaps.cpp:1265](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1265) |
+| `native Go enter` | [ColourMaps.cpp:1279](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1279) |
+| `native Go returned` | [ColourMaps.cpp:1281](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1281) |
+| `control timeout` | [ColourMaps.cpp:1296](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1296) |
+| `map reply sent` | [ColourMaps.cpp:1305](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1305) |
+| `control sent` | [ColourMaps.cpp:1307](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1307) |
 | `fkSettings: Local map preview check failed; retrying at Go.` | [ColourMaps.cpp:992](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:992) |
-| `local map requested` | [ColourMaps.cpp:1033](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1033) |
-| `local source hash actual/expected` | [ColourMaps.cpp:1038](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1038) |
-| `local source size actual/expected` | [ColourMaps.cpp:1039](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1039) |
-| `local effective hash actual/expected` | [ColourMaps.cpp:1050](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1050) |
-| `map handler disabled` | [ColourMaps.cpp:1062](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1062) |
-| `map header rejected` | [ColourMaps.cpp:1069](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1069) |
-| `map handler received` | [ColourMaps.cpp:1070](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1070) |
-| `map sender rejected` | [ColourMaps.cpp:1071](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1071) |
-| `local map ready` | [ColourMaps.cpp:1084](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1084) |
-| `local map rejected` | [ColourMaps.cpp:1089](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1089) |
-| `Go missing map` | [ColourMaps.cpp:1111](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1111) |
-| `control received` | [ColourMaps.cpp:1118](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1118) |
-| `Go frozen local map` | [ColourMaps.cpp:1147](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1147) |
-| `control withheld` | [ColourMaps.cpp:1172](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1172) |
-| `IPX start before lobby close` | [ColourMaps.cpp:1182](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1182) |
-| `IPX start submission failed` | [ColourMaps.cpp:1185](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1185) |
-| `IPX start submitted before lobby close` | [ColourMaps.cpp:1188](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1188) |
-| `native send enter` | [ColourMaps.cpp:1193](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1193) |
-| `native send returned` | [ColourMaps.cpp:1195](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1195) |
-| `ready withheld` | [ColourMaps.cpp:1214](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1214) |
-| `ready accepted` | [ColourMaps.cpp:1246](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1246) |
-| `host lobby initialized` | [ColourMaps.cpp:1267](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1267) |
-| `host setup enter` | [ColourMaps.cpp:1279](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1279) |
-| `host setup exit` | [ColourMaps.cpp:1281](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1281) |
-| `engine run enter` | [ColourMaps.cpp:1295](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1295) |
-| `engine start withheld` | [ColourMaps.cpp:1300](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1300) |
-| `engine run returned` | [ColourMaps.cpp:1308](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1308) |
-| `engine spawn returned` | [ColourMaps.cpp:1318](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1318) |
-| `host terrain prepare enter` | [ColourMaps.cpp:1810](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1810) |
-| `host terrain prepare returned` | [ColourMaps.cpp:1812](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1812) |
-| `terrain generation bypassed` | [ColourMaps.cpp:1825](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1825) |
-| `CRC32 self-test` | [ColourMaps.cpp:1957](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1957) |
-| `frontend path` | [ColourMaps.cpp:1960](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1960) |
-| `DLL path` | [ColourMaps.cpp:1962](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1962) |
-| `Data log path` | [ColourMaps.cpp:1963](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1963) |
-| `TEMP log path` | [ColourMaps.cpp:1964](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1964) |
-| `shared receive hooks` | [ColourMaps.cpp:1966](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1966) |
-| `colour map hooks` | [ColourMaps.cpp:1970](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1970) |
-| `map wire length rejected` | [ColourMaps.cpp:1983](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1983) |
+| `local map requested` | [ColourMaps.cpp:1384](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1384) |
+| `local source hash actual/expected` | [ColourMaps.cpp:1389](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1389) |
+| `local source size actual/expected` | [ColourMaps.cpp:1390](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1390) |
+| `local effective hash actual/expected` | [ColourMaps.cpp:1401](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1401) |
+| `map handler disabled` | [ColourMaps.cpp:1414](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1414) |
+| `map header rejected` | [ColourMaps.cpp:1421](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1421) |
+| `map handler received` | [ColourMaps.cpp:1422](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1422) |
+| `map sender rejected` | [ColourMaps.cpp:1423](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1423) |
+| `local map ready` | [ColourMaps.cpp:1439](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1439) |
+| `local map rejected` | [ColourMaps.cpp:1444](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1444) |
+| `Go missing map` | [ColourMaps.cpp:1468](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1468) |
+| `control received` | [ColourMaps.cpp:1475](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1475) |
+| `Go frozen local map` | [ColourMaps.cpp:1505](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1505) |
+| `control withheld` | [ColourMaps.cpp:1531](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1531) |
+| `IPX start before lobby close` | [ColourMaps.cpp:1541](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1541) |
+| `IPX start submission failed` | [ColourMaps.cpp:1544](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1544) |
+| `IPX start submitted before lobby close` | [ColourMaps.cpp:1547](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1547) |
+| `native send enter` | [ColourMaps.cpp:1552](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1552) |
+| `native send returned` | [ColourMaps.cpp:1554](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1554) |
+| `ready withheld` | [ColourMaps.cpp:1574](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1574) |
+| `ready accepted` | [ColourMaps.cpp:1606](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1606) |
+| `host lobby initialized` | [ColourMaps.cpp:1627](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1627) |
+| `host setup enter` | [ColourMaps.cpp:1638](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1638) |
+| `host setup exit` | [ColourMaps.cpp:1640](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1640) |
+| `engine run enter` | [ColourMaps.cpp:1654](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1654) |
+| `engine start withheld` | [ColourMaps.cpp:1659](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1659) |
+| `engine run returned` | [ColourMaps.cpp:1667](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1667) |
+| `engine spawn returned` | [ColourMaps.cpp:1677](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:1677) |
+| `host terrain prepare enter` | [ColourMaps.cpp:2169](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:2169) |
+| `host terrain prepare returned` | [ColourMaps.cpp:2171](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:2171) |
+| `terrain generation bypassed` | [ColourMaps.cpp:2184](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:2184) |
+| `CRC32 self-test` | [ColourMaps.cpp:2315](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:2315) |
+| `frontend path` | [ColourMaps.cpp:2318](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:2318) |
+| `DLL path` | [ColourMaps.cpp:2320](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:2320) |
+| `Data log path` | [ColourMaps.cpp:2321](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:2321) |
+| `TEMP log path` | [ColourMaps.cpp:2322](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:2322) |
+| `shared receive hooks` | [ColourMaps.cpp:2324](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:2324) |
+| `colour map hooks` | [ColourMaps.cpp:2328](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:2328) |
+| `map wire length rejected` | [ColourMaps.cpp:2341](C:/Users/carln/Documents/GitHub/fkSettings/fkSettings/ColourMaps.cpp:2341) |
 
 Additional diagnostic templates:
 
-- `map-network diagnostics 22 protocol 10 build %s %s` (compiler build date and time).
+- `map-network diagnostics 26 protocol 10 build %s %s` (compiler build date and time).
 - `pid=%lu Data log append failed error=%lu; using TEMP log`.
 - Log entries include a UTC timestamp followed by `pid=`, `tick=` and the message.
 - Numeric trace arguments use two eight-digit hexadecimal values.

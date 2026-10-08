@@ -53,13 +53,181 @@ namespace
     }
     std::wstring ImportCaption(HWND resourceOwner = nullptr)
     { return ResourceCaption(ImportStringId, L"Import", resourceOwner); }
+    struct ErrorPopup
+    {
+        CRITICAL_SECTION lock;
+        std::wstring text, title;
+        HWND owner = nullptr;
+        HWND volatile window = nullptr, dispatcher = nullptr;
+        volatile LONG cancelled = 0, finished = 0, closing = 0;
+        unsigned version = 1, shownVersion = 0;
+        ErrorPopup() { InitializeCriticalSection(&lock); }
+        ~ErrorPopup() { DeleteCriticalSection(&lock); }
+    };
+    struct ErrorPopupLock
+    {
+        CRITICAL_SECTION& lock;
+        explicit ErrorPopupLock(CRITICAL_SECTION& value) : lock(value) { EnterCriticalSection(&lock); }
+        ~ErrorPopupLock() { LeaveCriticalSection(&lock); }
+        ErrorPopupLock(const ErrorPopupLock&) = delete;
+        ErrorPopupLock& operator=(const ErrorPopupLock&) = delete;
+    };
+    using ErrorPopupHandle = std::shared_ptr<ErrorPopup>;
+    std::vector<ErrorPopupHandle> errorPopups;
+    DWORD errorPopupTls = TLS_OUT_OF_INDEXES;
+    constexpr UINT ErrorPopupUpdate = WM_APP + 0x351, ErrorPopupCancel = WM_APP + 0x352;
+    HWND ErrorPopupWindow(const ErrorPopupHandle& popup)
+    {
+        return popup ? static_cast<HWND>(InterlockedCompareExchangePointer(
+            reinterpret_cast<PVOID volatile*>(&popup->window), nullptr, nullptr)) : nullptr;
+    }
+    bool ErrorPopupOpen(const ErrorPopupHandle& popup)
+    { return popup && !InterlockedCompareExchange(&popup->finished, 0, 0) && !InterlockedCompareExchange(&popup->cancelled, 0, 0); }
+    void CloseErrorPopup(const ErrorPopupHandle& popup)
+    {
+        if (!popup) return;
+        InterlockedExchange(&popup->cancelled, 1);
+        const HWND dispatcher = static_cast<HWND>(InterlockedCompareExchangePointer(
+            reinterpret_cast<PVOID volatile*>(&popup->dispatcher), nullptr, nullptr));
+        if (dispatcher) PostMessageW(dispatcher, ErrorPopupCancel, 0, 0);
+    }
+    LRESULT CALLBACK ErrorPopupDispatch(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR data)
+    {
+        auto popup = reinterpret_cast<ErrorPopup*>(data);
+        if (message == WM_TIMER && popup->owner && !IsWindow(popup->owner)) InterlockedExchange(&popup->cancelled, 1);
+        if (message == ErrorPopupUpdate || message == ErrorPopupCancel || message == WM_TIMER)
+        {
+            bool changed = false;
+            { ErrorPopupLock guard(popup->lock); changed = popup->version != popup->shownVersion; }
+            if (changed || InterlockedCompareExchange(&popup->cancelled, 0, 0))
+            {
+                const HWND dialog = static_cast<HWND>(InterlockedCompareExchangePointer(
+                    reinterpret_cast<PVOID volatile*>(&popup->window), nullptr, nullptr));
+                if (dialog && !InterlockedCompareExchange(&popup->closing, 1, 0)) PostMessageW(dialog, WM_CLOSE, 0, 0);
+            }
+            return 0;
+        }
+        if (message == WM_NCDESTROY) RemoveWindowSubclass(window, ErrorPopupDispatch, id);
+        return DefSubclassProc(window, message, wparam, lparam);
+    }
+    LRESULT CALLBACK ErrorPopupCreated(int code, WPARAM wparam, LPARAM lparam)
+    {
+        auto popup = static_cast<ErrorPopup*>(TlsGetValue(errorPopupTls));
+        if (popup && code == HCBT_ACTIVATE)
+        {
+            const HWND dialog = reinterpret_cast<HWND>(wparam);
+            InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(&popup->window), dialog);
+            // MessageBox has no cross-thread owner: it cannot disable the lobby.
+            // Centre it over the frontend without changing Windows' own layout.
+            RECT parent{}, bounds{};
+            if (IsWindow(popup->owner) && GetWindowRect(popup->owner, &parent) && GetWindowRect(dialog, &bounds))
+            {
+                MONITORINFO monitor{ sizeof(monitor) };
+                if (GetMonitorInfoW(MonitorFromWindow(popup->owner, MONITOR_DEFAULTTONEAREST), &monitor))
+                {
+                    const LONG width = bounds.right - bounds.left, height = bounds.bottom - bounds.top;
+                    const LONG left = std::max(monitor.rcWork.left, std::min(parent.left + (parent.right - parent.left - width) / 2, monitor.rcWork.right - width));
+                    const LONG top = std::max(monitor.rcWork.top, std::min(parent.top + (parent.bottom - parent.top - height) / 2, monitor.rcWork.bottom - height));
+                    SetWindowPos(dialog, nullptr, left, top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                }
+            }
+            PostMessageW(static_cast<HWND>(InterlockedCompareExchangePointer(
+                reinterpret_cast<PVOID volatile*>(&popup->dispatcher), nullptr, nullptr)), ErrorPopupUpdate, 0, 0);
+        }
+        return CallNextHookEx(nullptr, code, wparam, lparam);
+    }
+    struct ErrorPopupThread { ErrorPopupHandle popup; HMODULE module = nullptr; };
+    DWORD WINAPI ErrorPopupMain(void* argument)
+    {
+        auto input = static_cast<ErrorPopupThread*>(argument);
+        ErrorPopupHandle popup = std::move(input->popup);
+        const HMODULE module = input->module; delete input;
+        TlsSetValue(errorPopupTls, popup.get());
+        HWND dispatcher = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(&popup->dispatcher), dispatcher);
+        if (dispatcher && !SetWindowSubclass(dispatcher, ErrorPopupDispatch, 1, reinterpret_cast<DWORD_PTR>(popup.get())))
+        {
+            DestroyWindow(dispatcher); dispatcher = nullptr;
+            InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(&popup->dispatcher), nullptr);
+        }
+        if (dispatcher) SetTimer(dispatcher, 1, 100, nullptr);
+        const HHOOK hook = dispatcher ? SetWindowsHookExW(WH_CBT, ErrorPopupCreated, nullptr, GetCurrentThreadId()) : nullptr;
+        try
+        {
+            while (dispatcher && hook && !InterlockedCompareExchange(&popup->cancelled, 0, 0))
+            {
+                std::wstring text, title;
+                {
+                    ErrorPopupLock guard(popup->lock);
+                    text = popup->text; title = popup->title; popup->shownVersion = popup->version;
+                }
+                MessageBoxW(nullptr, text.c_str(), title.c_str(), MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+                InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(&popup->window), nullptr);
+                InterlockedExchange(&popup->closing, 0);
+                bool changed = false;
+                { ErrorPopupLock guard(popup->lock); changed = popup->shownVersion != popup->version; }
+                if (!changed) break;
+                // Windows lays out the updated text itself. Replace the old
+                // dialog on this one worker, so no warnings can stack.
+            }
+        }
+        catch (const std::exception&) { InterlockedExchange(&popup->cancelled, 1); }
+        if (hook) UnhookWindowsHookEx(hook);
+        if (dispatcher) { KillTimer(dispatcher, 1); DestroyWindow(dispatcher); }
+        InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(&popup->dispatcher), nullptr);
+        InterlockedExchangePointer(reinterpret_cast<PVOID volatile*>(&popup->window), nullptr);
+        InterlockedExchange(&popup->finished, 1);
+        TlsSetValue(errorPopupTls, nullptr); popup.reset();
+        // Hold a DLL reference until its worker has stopped executing our code.
+        // Never join a UI worker from DllMain or the frontend message loop.
+        if (module != GetModuleHandleW(nullptr)) FreeLibraryAndExitThread(module, 0);
+        ExitThread(0); return 0;
+    }
+    ErrorPopupHandle ShowErrorPopup(ErrorPopupHandle existing, HWND owner, const wchar_t* text, const wchar_t* title)
+    {
+        if (ErrorPopupOpen(existing))
+        {
+            {
+                ErrorPopupLock guard(existing->lock);
+                existing->text = text; existing->title = title; ++existing->version;
+            }
+            const HWND dispatcher = static_cast<HWND>(InterlockedCompareExchangePointer(
+                reinterpret_cast<PVOID volatile*>(&existing->dispatcher), nullptr, nullptr));
+            if (dispatcher) PostMessageW(dispatcher, ErrorPopupUpdate, 0, 0);
+            return existing;
+        }
+        errorPopups.erase(std::remove_if(errorPopups.begin(), errorPopups.end(),
+            [](const ErrorPopupHandle& popup) { return InterlockedCompareExchange(&popup->finished, 0, 0) != 0; }), errorPopups.end());
+        if (errorPopupTls == TLS_OUT_OF_INDEXES) errorPopupTls = TlsAlloc();
+        if (errorPopupTls == TLS_OUT_OF_INDEXES) return {};
+        auto popup = std::make_shared<ErrorPopup>();
+        popup->owner = IsWindow(owner) ? owner : GetActiveWindow(); popup->text = text; popup->title = title;
+        HMODULE module = nullptr;
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+            reinterpret_cast<LPCWSTR>(&ErrorPopupMain), &module)) return {};
+        auto input = new ErrorPopupThread; input->popup = popup; input->module = module;
+        const HANDLE thread = CreateThread(nullptr, 0, ErrorPopupMain, input, 0, nullptr);
+        if (!thread)
+        {
+            delete input;
+            if (module != GetModuleHandleW(nullptr)) FreeLibrary(module);
+            return {};
+        }
+        CloseHandle(thread); errorPopups.push_back(popup);
+        return popup;
+    }
+    void CloseErrorPopups()
+    {
+        for (const auto& popup : errorPopups) CloseErrorPopup(popup);
+        errorPopups.clear();
+    }
     void ShowImportError(HWND owner, const std::exception& error, HWND resourceOwner)
     {
         const char* text = error.what();
         const int length = MultiByteToWideChar(CP_UTF8, 0, text, -1, nullptr, 0);
         std::wstring message(length ? length : 1, L'\0');
         if (length) MultiByteToWideChar(CP_UTF8, 0, text, -1, &message[0], length);
-        MessageBoxW(owner, message.c_str(), ImportCaption(resourceOwner).c_str(), MB_OK | MB_ICONERROR);
+        ShowErrorPopup(nullptr, owner, message.c_str(), ImportCaption(resourceOwner).c_str());
     }
     struct Map
     {
@@ -306,6 +474,13 @@ namespace
         uint32_t sourceSize = 0, sourceCrc = 0, cavern = 0, pathLength = 0, waterLength = 0;
     };
     enum class MapResult : uint32_t { Ready, Missing, Different, Invalid, CannotPublish, Unsupported };
+    struct MapAlert
+    {
+        MapIdentity identity;
+        uint32_t player = 0;
+        MapResult result = MapResult::Ready;
+        std::wstring path;
+    };
     struct MapReply { MapHeader header; MapResult result = MapResult::Ready; uint32_t sourceCrc = 0; };
     static_assert(sizeof(MapHeader) == 24 && sizeof(MapReference) == 44 && sizeof(MapReply) == 32, "network layout");
     constexpr size_t MaximumMapMessage = sizeof(MapReference) + MAX_PATH * 3 + 255;
@@ -322,9 +497,10 @@ namespace
         std::vector<MapDelivery> deliveries;
         std::vector<uint32_t> players;
         size_t cursor = 0;
-        bool broadcast = false;
+        bool broadcast = false, reportFailures = false;
         DWORD lastProgress = 0;
     };
+    struct HostAlertRow { uint32_t player = 0; MapResult result = MapResult::Ready; std::wstring name; };
     struct NetworkState
     {
         bool hosting = false, joining = false, generating = false, failed = false;
@@ -339,6 +515,14 @@ namespace
         std::shared_ptr<const Map> outgoingMap;
         MapIdentity outgoing{};
         std::deque<MapCheck> checks;
+        std::vector<uint32_t> mapRecipients;
+        std::vector<uint32_t> alertRecipients;
+        std::vector<MapAlert> reportedAlerts;
+        std::deque<MapAlert> alerts;
+        ErrorPopupHandle alertWindow;
+        std::wstring shownAlertText;
+        std::vector<HostAlertRow> shownHostAlerts;
+        MapIdentity alertStart{};
         void* deferredGoObject = nullptr;
         NativeVoid deferredGo = nullptr;
         std::shared_ptr<const Map> startMap;
@@ -360,6 +544,26 @@ namespace
         std::vector<uint32_t> goRecipients;
     } network;
     UINT_PTR networkTimer = 0;
+    UINT_PTR alertTimer = 0;
+    bool displayingAlert = false;
+    unsigned networkDispatchDepth = 0;
+    struct NetworkDispatch
+    {
+        NetworkDispatch() { ++networkDispatchDepth; }
+        ~NetworkDispatch() { --networkDispatchDepth; }
+        NetworkDispatch(const NetworkDispatch&) = delete;
+        NetworkDispatch& operator=(const NetworkDispatch&) = delete;
+    };
+    auto showNetworkAlert = ShowErrorPopup;
+    void StartAlertTimer();
+    void ClearMapAlerts()
+    {
+        if (alertTimer) KillTimer(nullptr, alertTimer);
+        alertTimer = 0;
+        network.alerts.clear(); network.reportedAlerts.clear();
+        CloseErrorPopup(network.alertWindow);
+        network.alertWindow = nullptr; network.shownAlertText.clear(); network.shownHostAlerts.clear();
+    }
     void PumpNetworkQueues();
     void Trace(const char* phase, uint32_t a, uint32_t b);
     void StopNetworkTimer()
@@ -369,7 +573,7 @@ namespace
     }
     void ResetNetwork()
     {
-        StopNetworkTimer(); network = NetworkState{};
+        StopNetworkTimer(); ClearMapAlerts(); network = NetworkState{};
     }
     void CancelNetworkQueues()
     {
@@ -420,6 +624,134 @@ namespace
         return a.magic == MapTrailerMagic && b.magic == MapTrailerMagic &&
             a.revision == b.revision && a.size == b.size && a.crc == b.crc;
     }
+    const std::wstring& MapFailureText(MapResult result)
+    {
+        switch (result)
+        {
+        case MapResult::Missing: return strings.strMissingMap;
+        case MapResult::Different: return strings.strDifferentMap;
+        case MapResult::CannotPublish: return strings.strCannotSaveMap;
+        default: return strings.strInvalidMap;
+        }
+    }
+    const std::wstring& HostMapFailureText(MapResult result)
+    {
+        switch (result)
+        {
+        case MapResult::Missing: return strings.strFileNotFound;
+        case MapResult::Different: return strings.strFileMismatch;
+        case MapResult::CannotPublish: return strings.strSaveFailed;
+        default: return strings.strInvalidFile;
+        }
+    }
+    std::wstring NetworkPlayerName(uint32_t player)
+    {
+        if (!network.transport) return {};
+        BYTE* channel = static_cast<BYTE*>(network.transport) + 0x12d50;
+        if (*reinterpret_cast<uint32_t*>(channel + 0x39c) != 1) return {};
+        void* directPlay = *reinterpret_cast<void**>(channel + 0x3a0);
+        if (!directPlay) return {};
+        // IDirectPlay2/3/4A::GetPlayerName reads the local player cache.
+        using GetName = HRESULT(WINAPI*)(void*, uint32_t, void*, DWORD*);
+        const auto getName = reinterpret_cast<GetName>((*reinterpret_cast<void***>(directPlay))[21]);
+        if (!getName) return {};
+        struct PlayerName { DWORD size, flags; const char* shortName; const char* longName; };
+        alignas(void*) std::array<BYTE, 1024> buffer{};
+        DWORD size = static_cast<DWORD>(buffer.size());
+        if (getName(directPlay, player, buffer.data(), &size) != S_OK || size < sizeof(PlayerName) || size > buffer.size()) return {};
+        PlayerName name{}; memcpy(&name, buffer.data(), sizeof(name));
+        for (const char* text : { name.shortName, name.longName })
+        {
+            const auto address = reinterpret_cast<uintptr_t>(text);
+            const auto start = reinterpret_cast<uintptr_t>(buffer.data());
+            if (address < start + sizeof(name) || address >= start + size) continue;
+            const char* end = static_cast<const char*>(memchr(text, 0, start + size - address));
+            if (!end || end == text) continue;
+            const int length = static_cast<int>(end - text);
+            const int count = MultiByteToWideChar(CP_ACP, 0, text, length, nullptr, 0);
+            if (!count) continue;
+            std::wstring result(count, L'\0');
+            MultiByteToWideChar(CP_ACP, 0, text, length, &result[0], count);
+            return result;
+        }
+        return {};
+    }
+    void DisplayMapAlerts()
+    {
+        if (displayingAlert || networkDispatchDepth || network.alerts.empty() || !IsWindow(network.window)) return;
+        if (alertTimer) KillTimer(nullptr, alertTimer);
+        alertTimer = 0;
+        const HWND owner = network.window;
+        std::wstring message;
+        if (network.hosting)
+        {
+            if (!ErrorPopupOpen(network.alertWindow)) network.shownHostAlerts.clear();
+            for (const auto& alert : network.alerts)
+            {
+                auto row = std::find_if(network.shownHostAlerts.begin(), network.shownHostAlerts.end(),
+                    [&](const HostAlertRow& item) { return item.player == alert.player; });
+                if (row == network.shownHostAlerts.end())
+                {
+                    HostAlertRow item; item.player = alert.player; item.result = alert.result;
+                    item.name = NetworkPlayerName(alert.player);
+                    if (item.name.empty())
+                    {
+                        wchar_t id[16]{}; swprintf_s(id, L"%08lx", static_cast<unsigned long>(alert.player));
+                        item.name = strings.strPlayer + L" " + id;
+                    }
+                    network.shownHostAlerts.push_back(std::move(item));
+                }
+                else row->result = alert.result;
+            }
+            message = strings.strHostMapError;
+            for (const auto& row : network.shownHostAlerts)
+                message += L"\n" + row.name + L" (" + HostMapFailureText(row.result) + L")";
+        }
+        else
+        {
+            message = ErrorPopupOpen(network.alertWindow) ? network.shownAlertText : std::wstring{};
+            for (const auto& alert : network.alerts)
+            {
+                if (!message.empty()) message += L"\n\n";
+                message += strings.strLocalMapError + L"\n" + MapFailureText(alert.result);
+                if (!alert.path.empty()) message += L"\n\n" + alert.path;
+            }
+        }
+        network.alerts.clear();
+        // Keep later failures from the same attempt on one native-dialog worker.
+        network.shownAlertText = message;
+        displayingAlert = true;
+        network.alertWindow = showNetworkAlert(network.alertWindow, owner, message.c_str(), ImportCaption(owner).c_str());
+        displayingAlert = false;
+        StartAlertTimer();
+    }
+    void CALLBACK MapAlertTick(HWND, UINT, UINT_PTR timer, DWORD)
+    {
+        if (timer != alertTimer || displayingAlert) return;
+        try { DisplayMapAlerts(); }
+        catch (const std::exception&) { displayingAlert = false; ClearMapAlerts(); }
+    }
+    void StartAlertTimer()
+    {
+        if (!alertTimer && !displayingAlert && !network.alerts.empty() && IsWindow(network.window))
+            alertTimer = SetTimer(nullptr, 0, 120, MapAlertTick);
+    }
+    void QueueMapAlert(uint32_t player, const MapIdentity& identity, MapResult result, const std::wstring& path)
+    {
+        if (result == MapResult::Ready) return;
+        for (const auto& alert : network.reportedAlerts)
+            if (alert.player == player && SameIdentity(alert.identity, identity) && alert.result == result) return;
+        MapAlert alert; alert.player = player; alert.identity = identity; alert.result = result; alert.path = path;
+        network.reportedAlerts.push_back(alert); network.alerts.push_back(std::move(alert));
+        StartAlertTimer();
+    }
+    void QueueHostMapAlert(uint32_t player, const MapReply& reply)
+    {
+        if (!network.alertStart.revision || !SameIdentity(network.alertStart, reply.header.identity) ||
+            std::find(network.alertRecipients.begin(), network.alertRecipients.end(), player) == network.alertRecipients.end()) return;
+        QueueMapAlert(player, reply.header.identity, reply.result,
+            network.outgoingMap ? L"Levels\\Import\\" + network.outgoingMap->relativePath : std::wstring{});
+    }
     const Map* PreviewMap() { return network.joining ? network.remote.get() : selected.get(); }
     const Map* NetworkMap() { return network.round.size ? network.roundMap.get() : nullptr; }
 
@@ -443,6 +775,7 @@ namespace
         {
             network.window = window;
             SetWindowSubclass(window, NetworkWindowProc, 0x464b4d31, 0);
+            StartAlertTimer();
         }
     }
     void SelectNetworkHost(uint32_t host)
@@ -542,7 +875,7 @@ namespace
         if (EncodePath(path) != bytes) throw std::runtime_error("Invalid map path encoding.");
         return path;
     }
-    bool traceEnabled = true;
+    bool traceEnabled = false; // File diagnostics are disabled in release builds.
     std::wstring traceGamePath, traceMirrorPath;
     DWORD traceGameError = ERROR_SUCCESS;
     DWORD AppendTrace(const std::wstring& path, const char* line, DWORD length)
@@ -676,6 +1009,7 @@ namespace
 
     bool TryPacketSend(void* object, uint32_t source, uint32_t target, const void* packet, uint32_t length, bool readyChannel)
     {
+        const NetworkDispatch dispatch;
         if (!object || !directSend) return false;
         BYTE* channel = static_cast<BYTE*>(object) + (readyChannel ? 0x128c8 : 0x12d50);
         const bool reliable = *reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0x120d4) == 1;
@@ -755,6 +1089,7 @@ namespace
                 map->relativePath == network.outgoingMap->relativePath && map->sourceCrc == network.outgoingMap->sourceCrc &&
                 map->sourceSize == network.outgoingMap->sourceSize))) return network.outgoing;
         network.outgoingMap = map ? std::make_shared<Map>(*map) : nullptr;
+        ClearMapAlerts(); network.mapRecipients.clear(); network.alertRecipients.clear(); network.alertStart = {};
         network.outgoing = {};
         network.outgoing.revision = ++network.revision;
         if (!network.outgoing.revision) network.outgoing.revision = ++network.revision;
@@ -780,7 +1115,7 @@ namespace
         if (packet.size() > MaximumMapMessage) throw std::runtime_error("Map path is too long.");
         return packet;
     }
-    void QueueMap(uint32_t target, bool broadcast)
+    void QueueMap(uint32_t target, bool broadcast, bool reportFailures = false)
     {
         const MapIdentity identity = network.outgoing;
         for (const auto& check : network.checks)
@@ -789,7 +1124,7 @@ namespace
                 { StartNetworkTimer(); return; }
         if (network.checks.size() >= 16) throw std::runtime_error("Too many pending map checks.");
         MapCheck check;
-        check.identity = identity; check.broadcast = broadcast; check.lastProgress = GetTickCount();
+        check.identity = identity; check.broadcast = broadcast; check.reportFailures = reportFailures; check.lastProgress = GetTickCount();
         check.sourceCrc = network.outgoingMap ? network.outgoingMap->sourceCrc : 0;
         check.packet = ReferencePacket(network.outgoingMap.get(), identity);
         if (network.outgoingMap) TracePath("host local map", network.outgoingMap->relativePath.c_str());
@@ -804,6 +1139,7 @@ namespace
         }
         else if (target && target != network.source) check.players.push_back(target);
         if (check.players.empty()) return;
+        if (reportFailures) network.alertRecipients = check.players;
         check.deliveries.resize(check.players.size());
         network.checks.push_back(std::move(check)); StartNetworkTimer();
     }
@@ -820,8 +1156,7 @@ namespace
             if (!Publish(*network.startMap, GameDirectory() + L"\\Data\\land.dat"))
             {
                 network.failed = true; network.startMap.reset();
-                MessageBoxW(nullptr, L"Error saving Data\\land.dat",
-                    ImportCaption().c_str(), MB_OK | MB_ICONERROR); return;
+                ShowErrorPopup(nullptr, network.window, L"Error saving Data\\land.dat", ImportCaption().c_str()); return;
             }
             network.startIdentity = OutgoingMap(network.startMap.get());
             // Recheck installed files for every start, including retries and
@@ -829,10 +1164,11 @@ namespace
             network.startIdentity.revision = ++network.revision;
             if (!network.startIdentity.revision) network.startIdentity.revision = ++network.revision;
             network.outgoing = network.startIdentity;
+            ClearMapAlerts(); network.mapRecipients.clear(); network.alertRecipients.clear(); network.alertStart = network.startIdentity;
             network.checks.clear();
             network.transport = image + 0x176a40;
             memcpy(&network.source, image + 0x1892ac, 4);
-            QueueMap(0, true);
+            QueueMap(0, true, true);
             network.deferredGoObject = object; network.deferredGo = handler;
             Trace("Go waiting for map", network.startIdentity.revision, network.startIdentity.size);
             StartNetworkTimer();
@@ -843,6 +1179,7 @@ namespace
     void __fastcall HostRoundGo(void* object, void*) { BeginHostGo(object, originalHostRoundGo); }
     bool ReceiveMapAck(uint32_t sender, const void* packet, uint32_t length)
     {
+        const NetworkDispatch dispatch;
         if (!network.hosting || length != sizeof(MapReply)) return false;
         MapReply reply; memcpy(&reply, packet, sizeof(reply));
         if (reply.header.type != MapAckPacketType || reply.header.version != MapProtocol ||
@@ -857,11 +1194,19 @@ namespace
             if (reply.result != MapResult::Ready)
             {
                 network.failed = true;
+                if (check.reportFailures) QueueHostMapAlert(sender, reply);
                 Trace("local map check failed", sender, static_cast<uint32_t>(reply.result));
             }
             else { delivery.confirmed = true; check.lastProgress = GetTickCount(); }
             TraceMap("map reply accepted", sender, network.source, reply.header, length);
             return true;
+        }
+        // The first failure cancels Go, but other checked players may still reply.
+        if (network.failed && reply.result != MapResult::Ready && network.outgoingMap &&
+            SameIdentity(reply.header.identity, network.outgoing) && reply.sourceCrc == network.outgoingMap->sourceCrc &&
+            std::find(network.mapRecipients.begin(), network.mapRecipients.end(), sender) != network.mapRecipients.end())
+        {
+            QueueHostMapAlert(sender, reply); return true;
         }
         return false;
     }
@@ -901,8 +1246,11 @@ namespace
             auto& delivery = check.deliveries[player];
             const bool awaiting = delivery.awaiting; const DWORD previousSent = delivery.sentAt;
             delivery.awaiting = true; delivery.sentAt = GetTickCount();
-            if (!mapSendAttempt(network.transport, network.source, check.players[player], check.packet.data(), static_cast<uint32_t>(check.packet.size())))
+            const uint32_t recipient = check.players[player];
+            if (!mapSendAttempt(network.transport, network.source, recipient, check.packet.data(), static_cast<uint32_t>(check.packet.size())))
             { delivery.awaiting = awaiting; delivery.sentAt = previousSent; return; }
+            if (std::find(network.mapRecipients.begin(), network.mapRecipients.end(), recipient) == network.mapRecipients.end())
+                network.mapRecipients.push_back(recipient);
             if (network.failed) { CancelNetworkQueues(); return; }
             AdvanceMapCheck();
             if (GetTickCount() - started >= 5) break;
@@ -911,6 +1259,7 @@ namespace
     }
     void PumpNetworkQueues()
     {
+        const NetworkDispatch dispatch;
         // Bound each burst and keep all native state on the frontend UI thread.
         if (!network.hosting && !network.joining) { CancelNetworkQueues(); return; }
         if (network.checks.empty() && (!network.pendingGo.empty() || QueuedGo()) && GetTickCount() - network.goStarted >= 25000) { Trace("Go timeout"); CancelNetworkQueues(); return; }
@@ -1012,7 +1361,8 @@ namespace
             if (control.packet.size() == sizeof(reply) && !memcmp(control.packet.data(), &reply, sizeof(reply))) return;
         QueueControl(image + 0x176a40, source, network.host, false, &reply, sizeof(reply), true);
     }
-    MapResult ResolveReference(const void* packet, uint32_t length, MapReference& reference, std::unique_ptr<Map>& resolved)
+    MapResult ResolveReference(const void* packet, uint32_t length, MapReference& reference, std::unique_ptr<Map>& resolved,
+        std::wstring* requiredPath = nullptr)
     {
         if (length < sizeof(reference)) return MapResult::Invalid;
         memcpy(&reference, packet, sizeof(reference));
@@ -1030,6 +1380,7 @@ namespace
             const char* data = static_cast<const char*>(packet) + sizeof(reference);
             const std::wstring relative = DecodePath(std::string(data, reference.pathLength));
             const std::wstring path = ImportedPath(relative);
+            if (requiredPath) *requiredPath = L"Levels\\Import\\" + relative;
             TracePath("local map requested", relative.c_str());
             const DWORD attributes = GetFileAttributesW(path.c_str());
             if (attributes == INVALID_FILE_ATTRIBUTES)
@@ -1056,6 +1407,7 @@ namespace
     }
     bool ReceiveNetwork(uint32_t sender, uint32_t host, const void* packet, uint32_t& length)
     {
+        const NetworkDispatch dispatch;
         const uint32_t type = PacketType(packet, length);
         if (!enabled)
         {
@@ -1074,13 +1426,16 @@ namespace
             if (length < sizeof(reference)) return false;
             if (header.identity.magic != MapTrailerMagic || !header.identity.revision || header.version != MapProtocol) return false;
             if (network.incoming.revision && static_cast<int32_t>(header.identity.revision - network.incoming.revision) < 0) return false;
+            if (!SameIdentity(network.incoming, header.identity)) ClearMapAlerts();
             network.incoming = header.identity; network.complete = {}; network.remote.reset();
             network.failed = false;
             std::unique_ptr<Map> resolved;
-            const auto result = ResolveReference(packet, length, reference, resolved);
+            std::wstring requiredPath;
+            const auto result = ResolveReference(packet, length, reference, resolved, &requiredPath);
             if (result == MapResult::Ready)
             {
                 network.remote = std::move(resolved); network.complete = reference.header.identity;
+                ClearMapAlerts();
                 Trace("local map ready", network.complete.revision, network.complete.crc);
             }
             else
@@ -1088,7 +1443,9 @@ namespace
                 network.failed = true;
                 Trace("local map rejected", reference.header.identity.revision, static_cast<uint32_t>(result));
             }
-            QueueMapAck(reference, result); RefreshAll();
+            QueueMapAck(reference, result);
+            QueueMapAlert(sender, reference.header.identity, result, requiredPath);
+            RefreshAll();
             return false; // Never expose custom packets to a native decoder.
         }
         if (type != 27 && type != 29 && type != 14) return true;
@@ -1124,6 +1481,7 @@ namespace
     void SendNetwork(void* object, uint32_t source, uint32_t target, bool broadcast,
         const void* packet, uint32_t length, NetworkSend send)
     {
+        const NetworkDispatch dispatch;
         const uint32_t type = PacketType(packet, length);
         if (!enabled) { send(object, source, target, broadcast, packet, length); return; }
         try
@@ -1150,7 +1508,8 @@ namespace
                         network.round.revision = ++network.revision;
                         if (!network.round.revision) network.round.revision = ++network.revision;
                         network.outgoing = network.round; network.checks.clear();
-                        QueueMap(0, true);
+                        ClearMapAlerts(); network.mapRecipients.clear(); network.alertRecipients.clear(); network.alertStart = network.round;
+                        QueueMap(0, true, true);
                     }
                 }
                 if (!network.checks.empty())
@@ -1208,6 +1567,7 @@ namespace
     }
     void __fastcall SendReady(void* object, void*, uint32_t source, uint32_t target, const void* packet, uint32_t length)
     {
+        const NetworkDispatch dispatch;
         const uint32_t type = PacketType(packet, length);
         if (network.joining && network.round.size && (type == 28 || type == 30))
         {
@@ -1273,8 +1633,7 @@ namespace
         WatchNetworkWindow(object);
         if (network.failed || !PublishNetworkMap())
         {
-            MessageBoxW(nullptr, L"Error saving Data\\land.dat",
-                ImportCaption().c_str(), MB_OK | MB_ICONERROR); return;
+            ShowErrorPopup(nullptr, network.window, L"Error saving Data\\land.dat", ImportCaption().c_str()); return;
         }
         Trace("host setup enter", network.round.revision, network.round.crc);
         original(object);
@@ -1830,8 +2189,7 @@ namespace
         launchFailed = !Publish(*selected, GameDirectory() + L"\\Data\\land.dat");
         if (launchFailed)
         {
-            MessageBoxW(nullptr, L"Error saving Data\\land.dat",
-                ImportCaption().c_str(), MB_OK | MB_ICONERROR);
+            ShowErrorPopup(nullptr, network.window, L"Error saving Data\\land.dat", ImportCaption().c_str());
             return;
         }
         // Mirror the native generator's completion byte. The LND itself owns
@@ -1855,8 +2213,7 @@ namespace
             // at the final launch boundary too, after every native preparation.
             if (!Publish(*selected, GameDirectory() + L"\\Data\\land.dat"))
             {
-                MessageBoxW(nullptr, L"Error saving Data\\land.dat",
-                    ImportCaption().c_str(), MB_OK | MB_ICONERROR);
+                ShowErrorPopup(nullptr, network.window, L"Error saving Data\\land.dat", ImportCaption().c_str());
                 return 0;
             }
         }
@@ -1950,8 +2307,9 @@ void SetLanguage(const std::string& language)
 
 void BeginDiagnostics(void* module)
 {
+    if (!traceEnabled) return;
     char build[160]{};
-    sprintf_s(build, "map-network diagnostics 22 protocol 10 build %s %s", __DATE__, __TIME__);
+    sprintf_s(build, "map-network diagnostics 26 protocol 10 build %s %s", __DATE__, __TIME__);
     TraceText(build);
     const BYTE digits[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
     Trace("CRC32 self-test", Checksum(digits, sizeof(digits)), 0xcbf43926);
@@ -1969,7 +2327,7 @@ bool Install()
     const bool success = InstallInImage(reinterpret_cast<BYTE*>(GetModuleHandleW(nullptr)));
     Trace("colour map hooks", success, 18); return success;
 }
-void Shutdown() { ResetNetwork(); }
+void Shutdown() { ResetNetwork(); CloseErrorPopups(); }
 void SendNetworkPacket(void* object, uint32_t source, uint32_t target, bool broadcast,
     const void* packet, uint32_t length, NetworkSend send)
 { SendNetwork(object, source, target, broadcast, packet, length, send); }

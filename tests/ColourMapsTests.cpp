@@ -25,6 +25,13 @@ static void LanguageTests()
             "\xEF\xBB\xBF" + std::string(translation.code) + "\r\n" })
         {
             CM::SetLanguage(code);
+            for (const auto& alertText : { CM::strings.strHostMapError, CM::strings.strLocalMapError, CM::strings.strPlayer,
+                CM::strings.strMissingMap, CM::strings.strDifferentMap, CM::strings.strInvalidMap,
+                CM::strings.strCannotSaveMap, CM::strings.strFileNotFound,
+                CM::strings.strFileMismatch, CM::strings.strInvalidFile, CM::strings.strSaveFailed })
+                Check(!alertText.empty(), "all fifteen languages include every network alert string");
+            if (std::string(translation.code) != "en")
+                Check(CM::strings.strMissingMap != CM::MakeMapStrings("en").strMissingMap, "failure alerts use the selected language");
             const auto& text = CM::strings.strImportFolder;
             Check(text.find(translation.prefix) == 0 && text.find(L".dat") != std::wstring::npos &&
                 text.find(L"Levels\\Import") != std::wstring::npos, "all fifteen languages retain the literal filename extension and folder");
@@ -818,9 +825,18 @@ static void ReceiveDiagnosticsTests(BYTE* frontend)
     const auto directory = std::filesystem::absolute("Release/MapDiagnosticsFixture");
     Check(!std::filesystem::exists(directory), "isolated diagnostic fixture"); std::filesystem::create_directory(directory);
     const auto gamePath = directory / "Data.log", mirrorPath = directory / "TEMP.log";
-    CM::traceGamePath = gamePath.wstring(); CM::traceMirrorPath = mirrorPath.wstring(); CM::traceEnabled = true;
+    CM::traceGamePath = gamePath.wstring(); CM::traceMirrorPath = mirrorPath.wstring();
+    Check(!CM::traceEnabled, "colour-map logging is disabled by default");
     CM::BeginDiagnostics(GetModuleHandleW(nullptr));
-    Check(ReadLog(gamePath) == ReadLog(mirrorPath) && ReadLog(gamePath).find("map-network diagnostics 22 protocol 10") != std::string::npos &&
+    CM::Trace("disabled logging fixture");
+    CM::TracePath("disabled map path", L"Levels\\Import\\Birthday.dat");
+    CM::MapHeader disabledHeader;
+    CM::TraceMap("disabled map packet", 1, 2, disabledHeader, sizeof(disabledHeader));
+    Check(!std::filesystem::exists(gamePath) && !std::filesystem::exists(mirrorPath),
+        "disabled startup and network diagnostics create neither Data nor TEMP logs");
+    CM::traceEnabled = true;
+    CM::BeginDiagnostics(GetModuleHandleW(nullptr));
+    Check(ReadLog(gamePath) == ReadLog(mirrorPath) && ReadLog(gamePath).find("map-network diagnostics 26 protocol 10") != std::string::npos &&
         ReadLog(gamePath).find("CRC32 self-test cbf43926 cbf43926") != std::string::npos &&
         ReadLog(gamePath).find("frontend path") != std::string::npos && ReadLog(gamePath).find("pid=") != std::string::npos,
         "session marker, CRC32 self-test, build, executable path, UTC and PID reach both logs");
@@ -1100,6 +1116,261 @@ static bool QueueTestMap(void*, uint32_t source, uint32_t target, const void* pa
 { events.push_back({ source, target, false, std::vector<BYTE>(static_cast<const BYTE*>(packet), static_cast<const BYTE*>(packet) + length) }); return true; }
 static bool QueueTestControl(void*, uint32_t source, uint32_t target, const void* packet, uint32_t length, bool ready)
 { events.push_back({ source, target, ready, std::vector<BYTE>(static_cast<const BYTE*>(packet), static_cast<const BYTE*>(packet) + length) }); return true; }
+
+static std::wstring NativePopupText(HWND window)
+{
+    std::wstring text;
+    EnumChildWindows(window, [](HWND child, LPARAM data) -> BOOL {
+        wchar_t type[32]{}; GetClassNameW(child, type, 32);
+        if (wcscmp(type, L"Static") || (GetWindowLongW(child, GWL_STYLE) & SS_TYPEMASK) == SS_ICON) return TRUE;
+        const int length = GetWindowTextLengthW(child);
+        if (!length) return TRUE;
+        auto result = reinterpret_cast<std::wstring*>(data);
+        result->resize(length + 1); GetWindowTextW(child, &(*result)[0], length + 1); result->resize(length);
+        return FALSE;
+    }, reinterpret_cast<LPARAM>(&text));
+    text.erase(std::remove(text.begin(), text.end(), L'\r'), text.end());
+    return text;
+}
+static void PumpPopupTestMessages()
+{
+    MSG message{};
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
+}
+static HWND NativePopupOK(HWND dialog)
+{
+    HWND button = GetDlgItem(dialog, IDOK);
+    return button ? button : GetDlgItem(dialog, IDCANCEL);
+}
+static HWND WaitForNativePopup(const CM::ErrorPopupHandle& popup, const std::wstring& text)
+{
+    const DWORD started = GetTickCount();
+    while (GetTickCount() - started < 3000)
+    {
+        PumpPopupTestMessages();
+        const HWND window = CM::ErrorPopupWindow(popup);
+        if (IsWindow(window) && NativePopupOK(window) && NativePopupText(window) == text) return window;
+        Sleep(1);
+    }
+    throw std::runtime_error("native error worker displays latest message");
+}
+static void WaitForPopupClose(const CM::ErrorPopupHandle& popup)
+{
+    const DWORD started = GetTickCount();
+    while (GetTickCount() - started < 3000)
+    {
+        PumpPopupTestMessages();
+        if (InterlockedCompareExchange(&popup->finished, 0, 0)) return;
+        Sleep(1);
+    }
+    throw std::runtime_error("native error worker closes promptly");
+}
+static void NativePopupLifecycleTests()
+{
+    const HWND owner = CreateWindowExW(0, L"STATIC", L"Native popup lifecycle", 0, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    Check(owner != nullptr, "native popup lifecycle owner");
+    auto popup = CM::ShowErrorPopup({}, owner, L"First error", L"Import");
+    WaitForNativePopup(popup, L"First error");
+    for (int i = 0; i < 8; ++i)
+        Check(CM::ShowErrorPopup(popup, owner, (L"Updated error " + std::to_wstring(i)).c_str(), L"Import") == popup,
+            "rapid native updates reuse one worker");
+    WaitForNativePopup(popup, L"Updated error 7");
+    Check(IsWindowEnabled(owner), "native warning updates never disable frontend");
+    CM::CloseErrorPopup(popup); WaitForPopupClose(popup);
+    popup = CM::ShowErrorPopup({}, owner, L"Cancelled before creation", L"Import");
+    CM::CloseErrorPopup(popup); WaitForPopupClose(popup);
+    Check(!CM::ErrorPopupWindow(popup), "cancellation before window creation leaves no orphan warning");
+    popup = CM::ShowErrorPopup({}, owner, L"Lobby closing", L"Import");
+    WaitForNativePopup(popup, L"Lobby closing");
+    DestroyWindow(owner); WaitForPopupClose(popup);
+    Check(!CM::ErrorPopupOpen(popup), "owner destruction closes an ownerless native worker dialog");
+    CM::CloseErrorPopups();
+    puts("PASS: native popup rapid updates, cancellation before creation, owner destruction and worker cleanup");
+}
+static std::vector<std::wstring> alertMessages;
+static bool pumpDuringAlert = false, queueDuringAlert = false;
+static CM::ErrorPopupHandle CaptureNetworkAlert(CM::ErrorPopupHandle existing, HWND owner, LPCWSTR message, LPCWSTR title)
+{
+    alertMessages.emplace_back(message);
+    auto popup = CM::ShowErrorPopup(existing, owner, message, title);
+    WaitForNativePopup(popup, message);
+    Check(CM::ErrorPopupOpen(popup) && IsWindowEnabled(owner), "native error worker leaves frontend enabled");
+    if (pumpDuringAlert) CM::PumpNetworkQueues();
+    if (queueDuringAlert)
+    {
+        queueDuringAlert = false;
+        auto identity = CM::network.reportedAlerts.back().identity;
+        CM::QueueMapAlert(30, identity, CM::MapResult::Different, L"second.dat");
+        CM::DisplayMapAlerts();
+        Check(alertMessages.size() == 1, "popup creation cannot recursively create another map error window");
+    }
+    return popup;
+}
+static int alertGoCalls = 0;
+static void __fastcall AlertGoFixture(void*, void*) { ++alertGoCalls; }
+static HRESULT WINAPI TestPlayerName(void*, uint32_t player, void* data, DWORD* size)
+{
+    struct Name { DWORD size, flags; const char* shortName; const char* longName; };
+    const char* text = player == 20 ? "Carl2" : "Carl3";
+    const size_t length = strlen(text) + 1;
+    Check(*size >= sizeof(Name) + length, "bounded DirectPlay name buffer");
+    auto bytes = static_cast<BYTE*>(data);
+    Name name{ sizeof(Name), 0, reinterpret_cast<const char*>(bytes + sizeof(Name)), nullptr };
+    memcpy(bytes, &name, sizeof(name)); memcpy(bytes + sizeof(name), text, length);
+    *size = static_cast<DWORD>(sizeof(name) + length); return S_OK;
+}
+static void MapAlertTests(const CM::Map& sample)
+{
+    CM::ResetNetwork(); CM::enabled = true; CM::SetLanguage("en");
+    const HWND window = CreateWindowExW(0, L"STATIC", L"Map alert fixture", 0, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    Check(window != nullptr, "create alert owner");
+    CM::showNetworkAlert = CaptureNetworkAlert;
+    CM::mapSendAttempt = QueueTestMap; CM::controlSendAttempt = QueueTestControl;
+    CM::network.window = window; CM::network.hosting = true; CM::network.source = 10;
+    const uint32_t peers[] = { 20, 30 };
+    memcpy(CM::image + 0x1a7698 + 0x108c, peers, sizeof(peers));
+    const auto directory = std::filesystem::path(CM::GameDirectory()) / L"Data";
+    Check(!std::filesystem::exists(directory), "isolated alert fixture"); std::filesystem::create_directory(directory);
+    auto identity = CM::OutgoingMap(&sample);
+    CM::QueueMap(0, true);
+    events.clear(); alertMessages.clear(); CM::PumpNetworkQueues();
+    Check(events.size() == 2 && alertMessages.empty(), "references go to both peers without synchronous popups");
+    CM::MapReply reply; reply.header.type = CM::MapAckPacketType; reply.header.identity = identity;
+    reply.sourceCrc = sample.sourceCrc; reply.result = CM::MapResult::Missing;
+    Check(CM::ReceiveMapAck(20, &reply, sizeof(reply)), "accept failed check triggered by a join");
+    CM::PumpNetworkQueues(); reply.result = CM::MapResult::Different;
+    Check(CM::ReceiveMapAck(30, &reply, sizeof(reply)), "accept second late-join failure");
+    Check(CM::network.alerts.empty() && !CM::alertTimer && alertMessages.empty(), "joining players do not trigger host popups before Start Game");
+    CM::network.failed = false; CM::QueueMap(20, false); CM::PumpNetworkQueues();
+    reply.result = CM::MapResult::Missing;
+    Check(CM::ReceiveMapAck(20, &reply, sizeof(reply)), "accept failed targeted late-join check");
+    CM::PumpNetworkQueues();
+    Check(CM::network.alerts.empty() && !CM::alertTimer, "targeted join validation stays silent for host");
+    CM::selected.reset(new CM::Map(sample));
+    const uint32_t host = 10; memcpy(CM::image + 0x1892ac, &host, 4);
+    std::array<BYTE, 32> startObject{}; memcpy(startObject.data() + 28, &window, sizeof(window));
+    alertGoCalls = 0;
+    CM::BeginHostGo(startObject.data(), reinterpret_cast<CM::NativeVoid>(AlertGoFixture));
+    identity = CM::network.startIdentity;
+    Check(CM::SameIdentity(CM::network.alertStart, identity) && CM::network.deferredGo, "Start Game enables errors for its fresh validation revision");
+    events.clear(); CM::PumpNetworkQueues();
+    reply.header.identity = identity; reply.result = CM::MapResult::Missing;
+    Check(CM::ReceiveMapAck(20, &reply, sizeof(reply)), "accept first player's missing map after Start Game");
+    CM::PumpNetworkQueues();
+    Check(CM::network.checks.empty() && CM::network.failed && alertMessages.empty(), "failure cancels Go before deferred alert");
+    reply.result = CM::MapResult::Different;
+    Check(CM::ReceiveMapAck(30, &reply, sizeof(reply)), "report another player's hash mismatch after barrier cancellation");
+    Check(CM::ReceiveMapAck(30, &reply, sizeof(reply)) && CM::network.alerts.size() == 2, "duplicate negative reply produces no duplicate alert");
+    Check(!CM::ReceiveMapAck(40, &reply, sizeof(reply)), "unsent player cannot produce an alert");
+    reply.header.identity.revision++;
+    Check(!CM::ReceiveMapAck(30, &reply, sizeof(reply)), "wrong revision cannot produce an alert");
+    reply.header.identity = identity; reply.sourceCrc ^= 1;
+    Check(!CM::ReceiveMapAck(30, &reply, sizeof(reply)), "wrong source hash cannot produce an alert");
+    CM::network.failed = false; CM::QueueMap(40, false); CM::PumpNetworkQueues();
+    reply.sourceCrc = sample.sourceCrc; reply.result = CM::MapResult::Missing;
+    Check(CM::ReceiveMapAck(40, &reply, sizeof(reply)), "a new joiner is still validated after a failed start");
+    CM::PumpNetworkQueues();
+    Check(CM::network.alerts.size() == 2, "joining after an earlier Start Game click does not add a host popup");
+    Check(CM::ReceiveMapAck(40, &reply, sizeof(reply)) && CM::network.alerts.size() == 2,
+        "delayed duplicate of background join failure also stays silent");
+    CM::network.transport = CM::image + 0x176a40;
+    BYTE* channel = static_cast<BYTE*>(CM::network.transport) + 0x12d50;
+    std::array<void*, 22> vtable{}; vtable[21] = reinterpret_cast<void*>(TestPlayerName);
+    void** table = vtable.data(); void* object = &table;
+    *reinterpret_cast<uint32_t*>(channel + 0x39c) = 1;
+    memcpy(channel + 0x3a0, &object, sizeof(object));
+    {
+        const CM::NetworkDispatch dispatch;
+        CM::MapAlertTick(nullptr, WM_TIMER, CM::alertTimer, 0);
+        Check(alertMessages.empty() && CM::network.alerts.size() == 2 && CM::alertTimer,
+            "timer dispatched inside network processing cannot open a popup or lose pending failures");
+    }
+    CM::MapAlertTick(nullptr, WM_TIMER, CM::alertTimer, 0);
+    const auto hostPopup = CM::network.alertWindow;
+    Check(CM::ErrorPopupOpen(hostPopup) && IsWindowEnabled(window) && alertGoCalls == 0, "start failure creates a nonblocking native error and never launches");
+    const std::wstring expected = L"The following players are unable to use your map:\nCarl2 (File not found)\nCarl3 (File mismatch)";
+    Check(alertMessages.size() == 1 && alertMessages[0] == expected,
+        "host warning matches requested heading and one short row per player without IDs or map paths");
+    const HWND nativeWindow = WaitForNativePopup(hostPopup, expected);
+    wchar_t nativeClass[32]{}; GetClassNameW(nativeWindow, nativeClass, 32);
+    Check(wcscmp(nativeClass, L"#32770") == 0 && NativePopupOK(nativeWindow) && GetWindowThreadProcessId(nativeWindow, nullptr) != GetCurrentThreadId(),
+        "real Windows MessageBox has standard OK button and runs on a separate UI thread");
+    CM::QueueMapAlert(20, identity, CM::MapResult::Different, L"unused-host-path.dat"); CM::DisplayMapAlerts();
+    Check(alertMessages.back() == L"The following players are unable to use your map:\nCarl2 (File mismatch)\nCarl3 (File mismatch)" &&
+        CM::network.alertWindow == hostPopup, "a changed failure updates the player's existing row and keeps one heading/window");
+    PostMessageW(CM::ErrorPopupWindow(hostPopup), WM_CLOSE, 0, 0); WaitForPopupClose(hostPopup);
+    *reinterpret_cast<uint32_t*>(channel + 0x39c) = 0;
+    memset(channel + 0x3a0, 0, sizeof(void*));
+    CM::network.transport = nullptr;
+    auto next = identity; ++next.revision; alertMessages.clear();
+    CM::QueueMapAlert(20, next, CM::MapResult::Missing, L"first.dat"); queueDuringAlert = true;
+    CM::DisplayMapAlerts();
+    const auto fallbackPopup = CM::network.alertWindow;
+    Check(CM::network.alerts.size() == 1 && CM::alertTimer && alertMessages[0].find(L"00000014") != std::wstring::npos,
+        "name fallback identifies player and reentrant failures stay queued");
+    CM::DisplayMapAlerts();
+    Check(alertMessages.size() == 2 && CM::network.alertWindow == fallbackPopup && IsWindowEnabled(window),
+        "later errors update the same window without disabling frontend or stacking popups");
+    CM::QueueMapAlert(20, next, CM::MapResult::Invalid, L"obsolete.dat");
+    auto changed = sample; changed.cavern = !changed.cavern; Put(changed.bytes, 16, changed.cavern);
+    CM::OutgoingMap(&changed);
+    Check(CM::network.alerts.empty() && !CM::alertTimer && CM::network.mapRecipients.empty() &&
+        !CM::ErrorPopupOpen(fallbackPopup) && !CM::network.alertStart.revision, "new selection clears start scope and closes obsolete error window");
+    CM::ResetNetwork(); CM::network.window = window; alertMessages.clear(); events.clear();
+    const uint32_t client = 20; memcpy(CM::image + 0x1892ac, &client, 4);
+    const auto packet = CM::ReferencePacket(&sample, identity);
+
+    const auto path = std::filesystem::path(CM::ImportedPath(sample.relativePath));
+    const auto backup = std::filesystem::path(path.wstring() + L".alert-backup");
+    std::filesystem::rename(path, backup);
+    uint32_t length = static_cast<uint32_t>(packet.size());
+    CM::ReceiveNetworkPacket(10, 10, packet.data(), length);
+    Check(CM::network.failed && CM::network.controls.size() == 1 && alertMessages.empty(), "missing joiner map queues acknowledgement before deferred popup");
+    CM::ReceiveNetworkPacket(10, 10, packet.data(), length);
+    Check(CM::network.alerts.size() == 1, "retransmitted selection does not spam joiner");
+    pumpDuringAlert = true; CM::DisplayMapAlerts(); pumpDuringAlert = false;
+    CM::MapReply received; Check(events.size() == 1, "acknowledgement is sent while popup is open");
+    memcpy(&received, events.front().packet.data(), sizeof(received));
+    Check(received.result == CM::MapResult::Missing && alertMessages[0].find(L"Levels\\Import\\" + sample.relativePath) != std::wstring::npos &&
+        alertMessages[0].find(CM::GameDirectory()) == std::wstring::npos &&
+        alertMessages[0].find(CM::strings.strLocalMapError) != std::wstring::npos, "joiner path starts at Levels\\Import without drive or game-folder prefix");
+    const auto joinerPopup = CM::network.alertWindow;
+    Check(CM::ErrorPopupOpen(joinerPopup) && IsWindowEnabled(window), "joiner can interact with frontend while error stays open");
+    std::filesystem::rename(backup, path);
+    Check(CM::Publish(changed, path.wstring()), "stage wrong installed map");
+    length = static_cast<uint32_t>(packet.size()); CM::ReceiveNetworkPacket(10, 10, packet.data(), length);
+    CM::DisplayMapAlerts();
+    Check(alertMessages.size() == 2 && CM::network.alertWindow == joinerPopup && alertMessages.back().find(CM::strings.strDifferentMap) != std::wstring::npos,
+        "joiner sees hash mismatch separately from missing map");
+    Check(CM::Publish(sample, path.wstring()), "restore correct installed map");
+    CM::ReceiveNetworkPacket(10, 10, packet.data(), length);
+    Check(CM::network.remote && !CM::network.failed && CM::network.alerts.empty() && !CM::alertTimer && !CM::ErrorPopupOpen(joinerPopup),
+        "successful validation clears failure and displays no alert");
+    CM::QueueMapAlert(10, identity, CM::MapResult::CannotPublish, path.wstring());
+    const UINT_PTR staleTimer = CM::alertTimer; CM::ResetNetwork();
+    CM::MapAlertTick(nullptr, WM_TIMER, staleTimer, 0);
+    Check(alertMessages.size() == 2 && !CM::alertTimer, "lobby reset suppresses stale popup callbacks");
+    const std::runtime_error importError("Invalid map file.");
+    CM::ShowImportError(window, importError, window);
+    Check(!CM::errorPopups.empty() && IsWindowEnabled(window), "import errors also return immediately with an enabled frontend");
+    const auto importPopup = CM::errorPopups.back();
+    const HWND importWindow = WaitForNativePopup(importPopup, L"Invalid map file.");
+    Check(NativePopupOK(importWindow) && IsWindowEnabled(window), "import errors use standard Windows OK button");
+    PostMessageW(importWindow, WM_COMMAND, GetDlgCtrlID(NativePopupOK(importWindow)), 0); WaitForPopupClose(importPopup);
+    CM::ShowImportError(window, importError, window);
+    const auto resetPopup = CM::errorPopups.back();
+    WaitForNativePopup(resetPopup, L"Invalid map file.");
+    CM::CloseErrorPopups(); WaitForPopupClose(resetPopup);
+    Check(!CM::ErrorPopupOpen(resetPopup), "shutdown posts cancellation without blocking frontend");
+    WaitForPopupClose(fallbackPopup); WaitForPopupClose(joinerPopup);
+    DestroyWindow(window); CM::showNetworkAlert = CM::ShowErrorPopup; CM::CloseErrorPopups();
+    CM::mapSendAttempt = CaptureMapAttempt; CM::controlSendAttempt = CaptureControlAttempt;
+    memset(CM::image + 0x1a7698 + 0x108c, 0, sizeof(peers));
+    events.clear(); CM::enabled = false; CM::selected.reset();
+    std::filesystem::remove(directory / L"land.dat"); std::filesystem::remove(directory);
+    puts("PASS: deferred host/joiner alerts, three players, late failures, names, deduplication, hash/path checks, compact host rows and native Windows dialogs on separate UI threads, Start-only host alerts, relative joiner paths and stale-session cleanup");
+}
+
 static void NetworkTests(const CM::Map& sample)
 {
     const auto directory = std::filesystem::path(CM::GameDirectory()) / L"Data";
@@ -1369,7 +1640,7 @@ int main(int argc, char** argv)
     try
     {
         Check(argc == 3, "supply frontend path and map import directory");
-        CM::traceEnabled = false; CM::controlSendAttempt = CaptureControlAttempt;
+        Check(!CM::traceEnabled, "release logging defaults to disabled"); CM::controlSendAttempt = CaptureControlAttempt;
         LanguageTests(); ChecksumTests();
         INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_WIN95_CLASSES };
         InitCommonControlsEx(&controls);
@@ -1395,7 +1666,7 @@ int main(int argc, char** argv)
         Check(!std::filesystem::exists(importRoot), "isolated import fixture");
         std::filesystem::create_directories(importRoot / L"Online Worms");
         Check(CM::Publish(*sample, CM::ImportedPath(sample->relativePath)), "stage installed colour map");
-        ParserTests(*sample); ReferenceTests(*sample); PublishTests(*sample); EditorTests(argv[1], *sample); NetworkTests(*sample); PacedNetworkTests(*sample); HandshakeBackpressureTests(*sample); SharedNetworkTests(*sample); HookTests(argv[1], *sample);
+        ParserTests(*sample); ReferenceTests(*sample); PublishTests(*sample); EditorTests(argv[1], *sample); NativePopupLifecycleTests(); MapAlertTests(*sample); NetworkTests(*sample); PacedNetworkTests(*sample); HandshakeBackpressureTests(*sample); SharedNetworkTests(*sample); HookTests(argv[1], *sample);
         std::filesystem::remove(CM::ImportedPath(sample->relativePath));
         std::filesystem::remove(importRoot / L"Online Worms"); std::filesystem::remove(importRoot); std::filesystem::remove(importRoot.parent_path());
         return 0;

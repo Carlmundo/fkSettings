@@ -7,7 +7,7 @@ int wmain(int argc, wchar_t** argv)
     try
     {
         namespace CM = ColourMaps;
-        CM::traceEnabled = false;
+        if (CM::traceEnabled) throw std::runtime_error("Release logging must default to disabled");
         const BYTE digits[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
         const int savedEpoch = _Init_thread_epoch; _Init_thread_epoch = 0;
         const uint32_t first = CM::Checksum(digits, sizeof(digits)); _Init_thread_epoch = savedEpoch;
@@ -21,6 +21,11 @@ int wmain(int argc, wchar_t** argv)
         for (const char* language : { "cs", "de", "en", "es", "es-419", "fr", "is", "it", "nl", "pl", "pt", "pt-br", "ru", "sv", "zh-Hans" })
         {
             CM::SetLanguage(std::string("\xEF\xBB\xBF") + language + "\r\n");
+            for (const auto& text : { CM::strings.strHostMapError, CM::strings.strLocalMapError, CM::strings.strPlayer,
+                CM::strings.strMissingMap, CM::strings.strDifferentMap, CM::strings.strInvalidMap,
+                CM::strings.strCannotSaveMap, CM::strings.strFileNotFound,
+                CM::strings.strFileMismatch, CM::strings.strInvalidFile, CM::strings.strSaveFailed })
+                if (text.empty()) throw std::runtime_error("XP localized network alert");
             bool rejected = false;
             try { CM::ImportedPath(L"..\\outside.dat"); }
             catch (const std::runtime_error& error)
@@ -54,6 +59,30 @@ int wmain(int argc, wchar_t** argv)
             DeleteFileW(local.c_str()); DeleteFileW((data + L"\\land.dat").c_str());
             RemoveDirectoryW(root.c_str()); RemoveDirectoryW(levels.c_str()); RemoveDirectoryW(data.c_str());
         }
+        INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_WIN95_CLASSES }; InitCommonControlsEx(&controls);
+        const HWND owner = CreateWindowExW(0, L"STATIC", L"XP error fixture", 0, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+        const std::wstring message = L"Map error\nLevels\\Import\\\u00e9\u65e5\u672c.dat";
+        const auto popup = CM::ShowErrorPopup(nullptr, owner, message.c_str(), L"Import");
+        HWND dialog = nullptr; const DWORD started = GetTickCount();
+        while (GetTickCount() - started < 3000)
+        {
+            MSG pending{};
+            while (PeekMessageW(&pending, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&pending); DispatchMessageW(&pending); }
+            dialog = CM::ErrorPopupWindow(popup);
+            if (IsWindow(dialog) && (GetDlgItem(dialog, IDOK) || GetDlgItem(dialog, IDCANCEL))) break;
+            Sleep(1);
+        }
+        if (!IsWindow(dialog) || !IsWindowEnabled(owner) || GetWindowThreadProcessId(dialog, nullptr) == GetCurrentThreadId())
+            throw std::runtime_error("XP native error worker keeps frontend enabled");
+        wchar_t displayed[256]{}; GetWindowTextW(GetDlgItem(dialog, 0xffff), displayed, 256);
+        if (std::wstring(displayed).find(L"Levels\\Import\\\u00e9\u65e5\u672c.dat") == std::wstring::npos)
+            throw std::runtime_error("XP native error preserves Unicode path");
+        PostMessageW(dialog, WM_CLOSE, 0, 0);
+        const DWORD closed = GetTickCount();
+        while (!InterlockedCompareExchange(&popup->finished, 0, 0) && GetTickCount() - closed < 3000) Sleep(1);
+        if (!InterlockedCompareExchange(&popup->finished, 0, 0)) throw std::runtime_error("XP native error OK dismissal");
+        DestroyWindow(owner); CM::CloseErrorPopups();
+        puts("PASS: XP toolset native MessageBox worker keeps frontend enabled, preserves Unicode and dismisses with OK");
         puts("PASS: XP toolset CRC32, zero TLS epoch, UTF-8 paths and installed map selection");
         return 0;
     }
