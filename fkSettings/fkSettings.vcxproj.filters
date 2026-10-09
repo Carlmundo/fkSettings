@@ -21,6 +21,7 @@
     <ClInclude Include="WaterFix.h">
       <Filter>Headers</Filter>
     </ClInclude>
+    <ClInclude Include="WeaponTabOrder.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="Hooks.h">
       <Filter>Headers</Filter>
     </ClInclude>

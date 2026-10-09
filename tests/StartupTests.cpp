@@ -5,6 +5,7 @@
 #include "../fkSettings/ColourMaps.cpp"
 #include "../fkSettings/ExtendedOptions.cpp"
 #include "../fkSettings/NetworkTeams.cpp"
+#include "../fkSettings/WeaponTabOrder.h"
 #include <algorithm>
 #include <cstdio>
 #include <stdexcept>
@@ -26,7 +27,12 @@ int main(int argc, char** argv)
         Check(argc == 2, "Usage: StartupTests.exe frontend.exe");
         LARGE_INTEGER frequency;
         Check(QueryPerformanceFrequency(&frequency) != FALSE, "performance counter");
-        std::vector<double> scans, hooks;
+        std::vector<double> scans, hooks, colourMaps;
+        const size_t colourMapSites[] = {
+            0x105f7, 0x1378d, 0x42a44, 0x7896a, 0x18841, 0x77c0e, 0xa349, 0x4468b,
+            0x5c51d, 0x46f09, 0x277c4, 0x3233d, 0x611a6, 0x634c7, 0x336f1, 0x62214,
+            0x34294, 0x61865, 0x1e32f, 0x358a4, 0x61a81, 0x144ed, 0xa0b70
+        };
         for (int run = 0; run < 9; ++run)
         {
             HANDLE file = CreateFileA(argv[1], GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
@@ -51,12 +57,18 @@ int main(int argc, char** argv)
             Check(VirtualProtect(image + 0x592aa, 4, PAGE_EXECUTE_READWRITE, &previous) != FALSE, "relocate repeat swings operand");
             *reinterpret_cast<uint32_t*>(image + 0x592aa) = reinterpret_cast<uint32_t>(image + 0x18640c);
             VirtualProtect(image + 0x592aa, 4, previous, &previous);
-            LARGE_INTEGER start, afterScans, afterHooks;
+            std::array<std::array<BYTE, 8>, sizeof(colourMapSites) / sizeof(colourMapSites[0])> originalColourMaps{};
+            for (size_t i = 0; i < originalColourMaps.size(); ++i)
+                memcpy(originalColourMaps[i].data(), image + colourMapSites[i], originalColourMaps[i].size());
+            LARGE_INTEGER start, afterScans, beforeColourMaps, afterHooks;
             QueryPerformanceCounter(&start);
             Check(Hooks::scanPattern2("Trackbar", "E8 55 4E 09 00 8B 45 F0 83 C0", 0, module) != 0, "trackbar signature");
             Check(Hooks::scanPattern2("TrackbarLabel", "E8 06 4E 09 00 8D 4D A4 E8 13 3C", 0, module) != 0, "trackbar label signature");
             Check(Hooks::scanPattern2("CheckboxLabel", "E8 E6 4E 09 00 6A 00 8D 4D A4 E8 F1", 0, module) != 0, "checkbox label signature");
             Check(Hooks::scanPattern2("Checkbox", "E8 BF 4E 09 00 8D 4D A4 E8 CC", 0, module) != 0, "checkbox signature");
+            const DWORD weaponLayoutEnd = Hooks::scanPattern2("WeaponLayoutEnd", TabOrder::LayoutEndPattern, 0, module);
+            Check(weaponLayoutEnd != 0 && weaponLayoutEnd + 5 + *reinterpret_cast<int32_t*>(weaponLayoutEnd + 1) ==
+                reinterpret_cast<DWORD>(image + 0xcf5b5), "weapon layout completion calls native SetScrollSizes");
             WaterFix::installed = false;
             Check(WaterFix::InstallInImage(module), "water signatures and jump");
             QueryPerformanceCounter(&afterScans);
@@ -65,16 +77,25 @@ int main(int argc, char** argv)
             Check(FrontendNetwork::InstallInImage(image), "install shared frontend packet hooks");
             Check(ExtendedOptions::InstallInImage(image), "install extended option hooks");
             Check(NetworkTeams::InstallInImage(image), "install network team hooks");
+            QueryPerformanceCounter(&beforeColourMaps);
+            Check(ColourMaps::InstallInImage(image), "install colour map hooks");
             QueryPerformanceCounter(&afterHooks);
             Check(image[0x975b0] == 0xe9 && image[0x97780] == 0xe9 && image[NetworkTeams::WriteGameRva] == 0xe9,
                 "all feature groups activated");
+            Check(ColourMaps::enabled && ColourMaps::directSend != nullptr, "colour map networking enabled");
+            for (const auto site : colourMapSites)
+                Check(image[site] == 0xe9, "all colour map hooks activated");
             Check(MH_Uninitialize() == MH_OK, "remove test hooks");
             Check(image[0x975b0] == 0x56 && image[0x97780] == 0x8b && image[NetworkTeams::WriteGameRva] == 0x55,
                 "all feature groups restored");
+            for (size_t i = 0; i < originalColourMaps.size(); ++i)
+                Check(memcmp(image + colourMapSites[i], originalColourMaps[i].data(), originalColourMaps[i].size()) == 0,
+                    "all colour map hook bytes restored");
             if (run > 0)
             {
                 scans.push_back(Milliseconds(start, afterScans, frequency));
                 hooks.push_back(Milliseconds(afterScans, afterHooks, frequency));
+                colourMaps.push_back(Milliseconds(beforeColourMaps, afterHooks, frequency));
             }
             UnmapViewOfFile(image);
             CloseHandle(mapping);
@@ -82,8 +103,9 @@ int main(int argc, char** argv)
         }
         std::sort(scans.begin(), scans.end());
         std::sort(hooks.begin(), hooks.end());
-        printf("PASS: combined startup installation/restoration; median scans/water %.3f ms, hooks %.3f ms (8 warm runs)\n",
-            scans[scans.size() / 2], hooks[hooks.size() / 2]);
+        std::sort(colourMaps.begin(), colourMaps.end());
+        printf("PASS: combined startup installation/restoration; median scans/water %.3f ms, hooks %.3f ms, colour maps %.3f ms (8 warm runs)\n",
+            scans[scans.size() / 2], hooks[hooks.size() / 2], colourMaps[colourMaps.size() / 2]);
         return 0;
     }
     catch (const std::exception& error)

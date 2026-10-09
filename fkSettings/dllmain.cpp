@@ -37,6 +37,7 @@ extern "C" { int __afxForceUSRDLL; }
 #include "ExtendedOptions.h"
 #include "ColourMaps.h"
 #include "WaterFix.h"
+#include "WeaponTabOrder.h"
 
 #include <sstream>
 #include <fstream>
@@ -141,19 +142,19 @@ double GetDpiScaleFactor(HWND hwnd)
     return dpi / 96.0; // 96 is the default DPI
 }
 
-void PatchCall(void* callAddr, void* newFunc) {
+bool PatchCall(void* callAddr, void* newFunc) {
     if (!callAddr || !newFunc)
-        return;
+        return false;
 
     BYTE* p = static_cast<BYTE*>(callAddr);
 
-    if (*p != 0xE8) return;
+    if (*p != 0xE8) return false;
 
     DWORD oldProtect = 0;
 
     if (!VirtualProtect(p, 5, PAGE_EXECUTE_READWRITE, &oldProtect))
     {
-        return;
+        return false;
     }
 
     DWORD src = reinterpret_cast<DWORD>(p) + 5;
@@ -163,25 +164,17 @@ void PatchCall(void* callAddr, void* newFunc) {
     DWORD ignored;
 
     VirtualProtect(p, 5, oldProtect, &ignored);
+    return true;
 }
 
-namespace TabOrder
+static TabOrder::Batch weaponTabOrder;
+using WeaponSetScrollSizes = void (__thiscall*)(void*, int, SIZE, const SIZE&, const SIZE&);
+WeaponSetScrollSizes originalWeaponSetScrollSizes = nullptr;
+
+void __fastcall WeaponsSetScrollSizes(void* object, void*, int mapMode, SIZE total, const SIZE& page, const SIZE& line)
 {
-    static std::vector<HWND> controls;
-
-    void Reset(){
-        controls.clear();
-    }
-
-    void Add(HWND hwnd){
-        if (hwnd) {
-            controls.push_back(hwnd);
-            for (size_t i = 0; i < controls.size(); ++i) {
-                HWND insertAfter = (i == 0) ? HWND_TOP : controls[i - 1];
-                SetWindowPos(controls[i], insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            }
-        }
-    }
+    originalWeaponSetScrollSizes(object, mapMode, total, page, line);
+    weaponTabOrder.Apply(*reinterpret_cast<HWND*>(static_cast<BYTE*>(object) + 28));
 }
 /*
 int __fastcall WeaponsSetWindowPos_Label(int hWnd, void* lol, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags)
@@ -199,7 +192,7 @@ int __fastcall WeaponsSetWindowPos_Input(int hWnd, void* lol, HWND hWndInsertAft
     double scale = GetDpiScaleFactor(hwnd);
 
     if (style == 1342242821) { //Trackbar with tabstop
-        TabOrder::Add(hwnd);
+        weaponTabOrder.Add(hwnd);
     }
 
     if(scale > 1)
@@ -215,7 +208,7 @@ int __fastcall WeaponsSetWindowPos_Button(int hWnd, void* lol, HWND hWndInsertAf
     double scale = GetDpiScaleFactor(hwnd);
 
     if (style == 1342242819) { //Checkbox with tabstop
-        TabOrder::Add(hwnd);
+        weaponTabOrder.Add(hwnd);
     }
     else {
         if (scale > 1)
@@ -628,7 +621,7 @@ HWND WINAPI detourCreateDialogIndirectParamA(HINSTANCE hInstance, LPCDLGTEMPLATE
             int dialogId;
             dialogId = static_cast<int>(reinterpret_cast<ULONG_PTR>(lastFoundResourceName));
             if (dialogId >= 4900 && dialogId <=4937) {
-                TabOrder::Reset();
+                weaponTabOrder.Reset(returnVal);
             }
         }
 
@@ -841,6 +834,14 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 
         DWORD CFormViewSetWindowPos6Addr = Hooks::scanPattern2("CFormViewSetWindowPos6", "E8 E6 4E 09 00 6A 00 8D 4D A4 E8 F1");
         DWORD CFormViewSetWindowPos7Addr = Hooks::scanPattern2("CFormViewSetWindowPos7", "E8 BF 4E 09 00 8D 4D A4 E8 CC");
+
+        DWORD weaponLayoutEnd = Hooks::scanPattern2("WeaponLayoutEnd", TabOrder::LayoutEndPattern);
+        if (weaponLayoutEnd)
+        {
+            originalWeaponSetScrollSizes = reinterpret_cast<WeaponSetScrollSizes>(
+                weaponLayoutEnd + 5 + *reinterpret_cast<int32_t*>(weaponLayoutEnd + 1));
+            weaponTabOrder.Enable(PatchCall(reinterpret_cast<void*>(weaponLayoutEnd), WeaponsSetScrollSizes));
+        }
 
         PatchCall((void*)CFormViewSetWindowPos5Addr, WeaponsSetWindowPos_Input); //Labels adjacent to trackbars
         PatchCall((void*)CFormViewSetWindowPos4Addr, WeaponsSetWindowPos_Input); //Trackbars

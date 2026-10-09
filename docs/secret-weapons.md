@@ -190,6 +190,33 @@ skip this feature and emit an
 `OutputDebugString` diagnostic. Failed hook installation rolls back the hooks
 created for this feature.
 
+## Native weapon-page tab order
+
+The native page constructor lays out controls in five-ID rows, then calls
+`CScrollView::SetScrollSizes` at RVA `0x2FD94`. The existing input-positioning
+detours collect the tab-stop sliders and checkboxes. A signature-checked patch
+at that final call forwards its original arguments and applies the collected
+order once after native layout completes.
+
+For a page with `n` tracked inputs, tab-order repair now makes `n` positioning
+calls instead of `n * (n + 1) / 2`. The native positioning calls and DPI
+adjustments remain in place. The final native input remains the first tab stop,
+and trailing readout labels keep their sibling order. Focus and control bounds
+are preserved. Pending controls belong to one page and are drained on completion;
+destroyed or reparented controls are skipped. If the completion signature is
+missing or its call cannot be patched, the original repair remains active.
+
+The XP-toolset fixture compares all 38 actual native page resources (4900-4937)
+with the previous algorithm. It checks full sibling order, forward/reverse tab
+traversal, focus, bounds, repeated layout, operation counts, cleanup and fallback.
+The startup fixture also verifies the completion signature and original call
+target against a private frontend image mapping.
+
+```powershell
+MSBuild.exe tests/WeaponTabOrderTests.vcxproj /t:Build /p:Configuration=Release /p:Platform=Win32
+./Release/WeaponTabOrderTests.exe 'D:/Games/Worms 2/frontend.exe'
+```
+
 ## Build and verification
 
 Build the solution as **Release / x86** (the project platform is Win32). The

@@ -168,6 +168,7 @@
     <ClInclude Include="ColourMaps.h" />
     <ClInclude Include="ColourMapsStrings.h" />
     <ClInclude Include="WaterFix.h" />
+    <ClInclude Include="WeaponTabOrder.h" />
     <ClInclude Include="SecretWeapons.h" />
     <ClInclude Include="FrontendNetwork.h" />
     <ClInclude Include="SecretWeaponsStrings.h" />
