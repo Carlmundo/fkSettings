@@ -187,7 +187,7 @@ namespace ExtendedOptions
             strings.hintWeaponsDontEndTurn = L"\nAllows ALL weapons to be used multiple times in a single turn.";
             strings.strLossOfControlDoesntEndTurn = L"Loss of control doesn't end turn";
             strings.hintLossOfControlDoesntEndTurn = L"Events that cause loss of control will still have that effect, but control will eventually be regained without ending the current turn.";
-            strings.strWormSelectAfterMovement = L"Worm Selection after movement";
+            strings.strWormSelectAfterMovement = L"Worm selection after movement";
             strings.hintWormSelectAfterMovement = L"\nYou can switch to other Worms after moving.";
             strings.strLowGravity = L"Low Gravity";
             strings.hintLowGravity = L"\nLowers the gravity.";
