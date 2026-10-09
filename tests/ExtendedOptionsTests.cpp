@@ -2,6 +2,8 @@
 #include <stdexcept>
 #include "../fkSettings/ExtendedOptions.cpp"
 #include "../fkSettings/SecretWeapons.cpp"
+#include "../fkSettings/FrontendNetwork.cpp"
+namespace FN = FrontendNetwork;
 #include "../fkSettings/ColourMaps.cpp"
 #include "../fkSettings/NetworkTeams.cpp"
 
@@ -310,9 +312,9 @@ static void __fastcall Receive(void*, void*, uint32_t, const void*, uint32_t len
 { ++receiveCalls; receivedLength = length; }
 static void NetworkTests()
 {
-    SW::originalSendToPlayer = reinterpret_cast<SW::SendToPlayer>(Send);
-    SW::originalSendToAll = reinterpret_cast<SW::SendToAll>(Broadcast);
-    SW::originalReceivePacket = reinterpret_cast<SW::ReceivePacket>(Receive);
+    FN::originalSendToPlayer = reinterpret_cast<FN::SendToPlayer>(Send);
+    FN::originalSendToAll = reinterpret_cast<FN::SendToAll>(Broadcast);
+    FN::originalReceivePacket = reinterpret_cast<FN::ReceivePacket>(Receive);
     std::array<BYTE, 0x84> native{};
     native[0] = 0x19;
     for (size_t i = 4; i < native.size(); ++i) native[i] = static_cast<BYTE>(i);
@@ -324,35 +326,35 @@ static void NetworkTests()
         for (size_t index = 0; index < EO::OptionCount + 2; ++index)
         {
             EO::values = Pattern(index);
-            SW::SendWeaponPacketToPlayer(lobby.data(), nullptr, 1, 2, native.data(), static_cast<uint32_t>(native.size()));
+            FN::SendPacketToPlayer(lobby.data(), nullptr, 1, 2, native.data(), static_cast<uint32_t>(native.size()));
             Check(sent.size() == 163 && memcmp(sent.data(), native.data(), native.size()) == 0, "targeted options transfer preserves native packet");
             Check(memcmp(sent.data() + EO::NativePacketSize, "PLUS", 4) == 0,
                 "lobby signature remains PLUS including all-unset settings");
             auto targeted = sent;
-            SW::SendWeaponPacketToAll(lobby.data(), nullptr, 1, native.data(), static_cast<uint32_t>(native.size()));
+            FN::SendPacketToAll(lobby.data(), nullptr, 1, native.data(), static_cast<uint32_t>(native.size()));
             Check(sent == targeted, "broadcast includes same host extension");
             EO::values.fill(1);
-            SW::ReceiveWeaponPacket(lobby.data(), nullptr, 42, sent.data(), static_cast<uint32_t>(sent.size() + transport * 4));
+            FN::ReceiveLobbyPacket(lobby.data(), nullptr, 42, sent.data(), static_cast<uint32_t>(sent.size() + transport * 4));
             Check(EO::values == Pattern(index), "both transport lengths restore host values before launch");
             Check(receivedLength == EO::NativePacketSize, "native option decoder sees native packet length");
             EO::values = Pattern(0);
-            SW::ReceiveWeaponPacket(lobby.data(), nullptr, 99, sent.data(), static_cast<uint32_t>(sent.size() + transport * 4));
+            FN::ReceiveLobbyPacket(lobby.data(), nullptr, 99, sent.data(), static_cast<uint32_t>(sent.size() + transport * 4));
             Check(EO::values == Pattern(0), "non-host cannot change extended options");
         }
         EO::values.fill(1);
-        SW::ReceiveWeaponPacket(lobby.data(), nullptr, 42, native.data(), static_cast<uint32_t>(native.size() + transport * 4));
+        FN::ReceiveLobbyPacket(lobby.data(), nullptr, 42, native.data(), static_cast<uint32_t>(native.size() + transport * 4));
         Check(EO::values == Pattern(EO::OptionCount + 1), "legacy host clears extension");
         sent.back() = 2;
         EO::values.fill(1);
-        SW::ReceiveWeaponPacket(lobby.data(), nullptr, 42, sent.data(), static_cast<uint32_t>(sent.size() + transport * 4));
+        FN::ReceiveLobbyPacket(lobby.data(), nullptr, 42, sent.data(), static_cast<uint32_t>(sent.size() + transport * 4));
         Check(EO::values == Pattern(EO::OptionCount + 1), "invalid host boolean clears extension");
         sent.back() = 0;
         sent[EO::NativePacketSize + 4 + EO::ToIndex(EO::OptionIndex::LowGravity)] = 2;
         EO::values.fill(1);
-        SW::ReceiveWeaponPacket(lobby.data(), nullptr, 42, sent.data(), static_cast<uint32_t>(sent.size() + transport * 4));
+        FN::ReceiveLobbyPacket(lobby.data(), nullptr, 42, sent.data(), static_cast<uint32_t>(sent.size() + transport * 4));
         Check(EO::values == Pattern(EO::OptionCount + 1), "invalid host Low Gravity boolean clears extension");
         const int calls = receiveCalls;
-        SW::ReceiveWeaponPacket(lobby.data(), nullptr, 42, native.data(), 4 + transport * 4);
+        FN::ReceiveLobbyPacket(lobby.data(), nullptr, 42, native.data(), 4 + transport * 4);
         Check(receiveCalls == calls, "short native option packet dropped before unbounded native decoder");
     }
     auto pages = static_cast<BYTE*>(VirtualAlloc(nullptr, 8192, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
@@ -1360,7 +1362,7 @@ static void HookTests(const char* path)
     std::array<std::array<BYTE, 17>, 17> before{};
     for (size_t i = 0; i < sites.size(); ++i) memcpy(before[i].data(), frontend + sites[i], before[i].size());
     Check(MH_Initialize() == MH_OK, "initialize MinHook");
-    Check(SW::InstallInImage(frontend), "install shared CRT/network hooks");
+    Check((SW::InstallInImage(frontend) && FN::InstallInImage(frontend)), "install shared CRT/network hooks");
     for (size_t corrupted : { 11u, 12u, 13u, 14u, 15u, 16u })
     {
         DWORD old;
@@ -1395,7 +1397,7 @@ int main(int argc, char** argv)
     try
     {
         std::vector<BYTE> image(0x5b8000);
-        EO::image = SW::image = image.data();
+        EO::image = FN::image = SW::image = image.data();
         EO::enabled = true;
         SW::originalRead = Read;
         SW::originalWrite = Write;

@@ -27,6 +27,7 @@
     <ClInclude Include="SecretWeapons.h">
       <Filter>Headers</Filter>
     </ClInclude>
+    <ClInclude Include="FrontendNetwork.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="ColourMaps.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="ColourMapsStrings.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="SecretWeaponsStrings.h">
@@ -49,6 +50,7 @@
     <ClCompile Include="CDButton.cpp">
       <Filter>Code</Filter>
     </ClCompile>
+    <ClCompile Include="FrontendNetwork.cpp"><Filter>Code</Filter></ClCompile>
     <ClCompile Include="ColourMaps.cpp"><Filter>Code</Filter></ClCompile>
     <ClCompile Include="dllmain.cpp">
       <Filter>Code</Filter>

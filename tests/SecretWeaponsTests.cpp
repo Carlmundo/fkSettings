@@ -3,6 +3,8 @@
 #include <vector>
 #include <stdexcept>
 #include "../fkSettings/SecretWeapons.cpp"
+#include "../fkSettings/FrontendNetwork.cpp"
+namespace FN = FrontendNetwork;
 
 namespace SW = SecretWeapons;
 
@@ -179,9 +181,9 @@ static void __fastcall NativePrepare(void* object, void*, int mode)
 
 static void NetworkTests()
 {
-    SW::originalSendToPlayer = reinterpret_cast<SW::SendToPlayer>(CaptureSend);
-    SW::originalSendToAll = reinterpret_cast<SW::SendToAll>(CaptureBroadcast);
-    SW::originalReceivePacket = reinterpret_cast<SW::ReceivePacket>(CaptureReceive);
+    FN::originalSendToPlayer = reinterpret_cast<FN::SendToPlayer>(CaptureSend);
+    FN::originalSendToAll = reinterpret_cast<FN::SendToAll>(CaptureBroadcast);
+    FN::originalReceivePacket = reinterpret_cast<FN::ReceivePacket>(CaptureReceive);
     SW::originalPrepareStocks = reinterpret_cast<SW::PrepareStocks>(NativePrepare);
     std::vector<BYTE> lobby(0x1640);
     constexpr uint32_t host = 1234;
@@ -201,16 +203,16 @@ static void NetworkTests()
                     SW::secretStocks[i] = (stock + i) % 100;
                 const auto hostStocks = SW::secretStocks;
                 if (broadcast)
-                    SW::SendWeaponPacketToAll(lobby.data(), nullptr, host, native.data(), native.size());
+                    FN::SendPacketToAll(lobby.data(), nullptr, host, native.data(), native.size());
                 else
-                    SW::SendWeaponPacketToPlayer(lobby.data(), nullptr, host, 9876, native.data(), native.size());
+                    FN::SendPacketToPlayer(lobby.data(), nullptr, host, 9876, native.data(), native.size());
                 Check(sentObject == lobby.data() && sentSession == host &&
                     sentPlayer == (broadcast ? 0xffffffff : 9876), "preserve transport object, session and join target");
                 Check(sentPacket.size() == 0x664 && memcmp(sentPacket.data(), native.data(), native.size()) == 0,
                     "append extension without altering 1600-byte normal weapon packet");
                 Check(memcmp(sentPacket.data() + 0x640, "PLUS", 4) == 0, "network extension has PLUS and no version");
                 SW::secretStocks.fill(5); // A client's unrelated local scheme.
-                SW::ReceiveWeaponPacket(lobby.data(), nullptr, host, sentPacket.data(),
+                FN::ReceiveLobbyPacket(lobby.data(), nullptr, host, sentPacket.data(),
                     static_cast<uint32_t>(sentPacket.size()) + reliable * 4);
                 Check(SW::secretStocks == hostStocks && stocksDuringReceive == hostStocks,
                     "host stocks replace client scheme before native weapon processing");
@@ -227,19 +229,19 @@ static void NetworkTests()
         for (int malformed : { 0, 1, 2, 3, 4, 5 })
         {
             SW::secretStocks.fill(0); // Default must clear clients too.
-            SW::SendWeaponPacketToAll(lobby.data(), nullptr, host, native.data(), native.size());
+            FN::SendPacketToAll(lobby.data(), nullptr, host, native.data(), native.size());
             if (malformed == 1) sentPacket.resize(native.size()); // Unmodified host.
             if (malformed == 2) sentPacket[sentPacket.size() - sizeof(uint32_t)] = 100; // Last DWORD > 99.
             if (malformed == 3) sentPacket[native.size()] = 'X';
             if (malformed == 4) sentPacket.resize(sentPacket.size() - 4);
             if (malformed == 5) sentPacket.push_back(0);
             SW::secretStocks.fill(9);
-            SW::ReceiveWeaponPacket(lobby.data(), nullptr, host, sentPacket.data(),
+            FN::ReceiveLobbyPacket(lobby.data(), nullptr, host, sentPacket.data(),
                 static_cast<uint32_t>(sentPacket.size()) + reliable * 4);
             Check(SW::secretStocks == decltype(SW::secretStocks){}, "Default, legacy or invalid host extension clears stale stocks");
         }
         SW::secretStocks.fill(7);
-        SW::ReceiveWeaponPacket(lobby.data(), nullptr, host + 1, sentPacket.data(),
+        FN::ReceiveLobbyPacket(lobby.data(), nullptr, host + 1, sentPacket.data(),
             static_cast<uint32_t>(sentPacket.size()) + reliable * 4);
         Check(SW::secretStocks.front() == 7 && SW::secretStocks.back() == 7, "non-host packet cannot replace secret scheme");
         // Put a short trailer immediately before an inaccessible page. Reliable
@@ -259,7 +261,7 @@ static void NetworkTests()
             if (length > native.size()) memset(packet + native.size(), 0, length - native.size());
             SW::secretStocks.fill(9);
             const int before = receiveCalls;
-            SW::ReceiveWeaponPacket(lobby.data(), nullptr, host, packet, static_cast<uint32_t>(length) + reliable * 4);
+            FN::ReceiveLobbyPacket(lobby.data(), nullptr, host, packet, static_cast<uint32_t>(length) + reliable * 4);
             Check(receiveCalls == before + (length >= native.size() ? 1 : 0), "drop truncated native packet before decoder");
             Check(SW::secretStocks.front() == (length < native.size() ? 9u : 0u), "bounded trailer reads never cross receive buffer");
         }
@@ -268,9 +270,9 @@ static void NetworkTests()
     *reinterpret_cast<uint32_t*>(SW::image + 0x188b14) = 0;
     const std::array<BYTE, 8> other{ 0x19, 0, 0, 0, 1, 2, 3, 4 };
     SW::secretStocks.fill(8);
-    SW::SendWeaponPacketToAll(lobby.data(), nullptr, host, other.data(), other.size());
+    FN::SendPacketToAll(lobby.data(), nullptr, host, other.data(), other.size());
     Check(sentPacket == std::vector<BYTE>(other.begin(), other.end()), "unrelated outgoing packets unchanged");
-    SW::ReceiveWeaponPacket(lobby.data(), nullptr, host, other.data(), other.size());
+    FN::ReceiveLobbyPacket(lobby.data(), nullptr, host, other.data(), other.size());
     Check(receivedLength == other.size() && receivedPointer == other.data() && SW::secretStocks.front() == 8,
         "unrelated incoming packets and stock state unchanged");
     puts("PASS: targeted/broadcast scheme transfer, both transport lengths, host authority, Default, malformed packets and all six client team stocks");
@@ -655,7 +657,18 @@ static void FrontendHookTests(const char* path)
     std::array<std::array<BYTE, 10>, 3> networkBefore{};
     for (size_t i = 0; i < networkSites.size(); ++i)
         memcpy(networkBefore[i].data(), frontend + networkSites[i], networkBefore[i].size());
-    Check(SW::InstallInImage(frontend), "all ten hooks install against supplied frontend");
+    for (size_t corrupted = 0; corrupted < networkSites.size(); ++corrupted)
+    {
+        DWORD old;
+        Check(VirtualProtect(frontend + networkSites[corrupted], 1, PAGE_EXECUTE_READWRITE, &old) != FALSE, "make network signature fixture writable");
+        frontend[networkSites[corrupted]] = 0x90;
+        Check(!FN::InstallInImage(frontend), "shared network module rejects unsupported signature before installing hooks");
+        frontend[networkSites[corrupted]] = networkBefore[corrupted][0];
+        VirtualProtect(frontend + networkSites[corrupted], 1, old, &old);
+        for (size_t i = 0; i < networkSites.size(); ++i)
+            Check(!memcmp(networkBefore[i].data(), frontend + networkSites[i], networkBefore[i].size()), "network signature rejection leaves every shared hook site unchanged");
+    }
+    Check((SW::InstallInImage(frontend) && FN::InstallInImage(frontend)), "seven weapon hooks and three shared network hooks install against supplied frontend");
     for (size_t i = 0; i < networkSites.size(); ++i)
         Check(memcmp(networkBefore[i].data(), frontend + networkSites[i], networkBefore[i].size()) != 0,
             "network send/receive detour enabled");
@@ -680,7 +693,7 @@ int main(int argc, char** argv)
     try
     {
         std::vector<BYTE> image(0x5b8000);
-        SW::image = image.data();
+        FN::image = SW::image = image.data();
         LanguageTests();
         SchemeTests();
         StockTests();

@@ -1,5 +1,8 @@
+#define NOMINMAX
 #include "../fkSettings/WaterFix.cpp"
 #include "../fkSettings/SecretWeapons.cpp"
+#include "../fkSettings/FrontendNetwork.cpp"
+#include "../fkSettings/ColourMaps.cpp"
 #include "../fkSettings/ExtendedOptions.cpp"
 #include "../fkSettings/NetworkTeams.cpp"
 #include <algorithm>
@@ -59,6 +62,7 @@ int main(int argc, char** argv)
             QueryPerformanceCounter(&afterScans);
             Check(MH_Initialize() == MH_OK, "initialize MinHook");
             Check(SecretWeapons::InstallInImage(image), "install secret weapon hooks");
+            Check(FrontendNetwork::InstallInImage(image), "install shared frontend packet hooks");
             Check(ExtendedOptions::InstallInImage(image), "install extended option hooks");
             Check(NetworkTeams::InstallInImage(image), "install network team hooks");
             QueryPerformanceCounter(&afterHooks);

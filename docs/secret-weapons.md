@@ -4,7 +4,11 @@ The weapon editor (dialog 200) now has eight secret entries, each with its own
 stock slider: 0–100, with 10 displayed as Unlimited. This implementation exposes stock only; it does
 not add power, delay, or crate-probability settings for secret weapons.
 
-The implementation lives in `fkSettings/SecretWeapons.cpp`. Secret weapon names
+The weapon editor, scheme serialization and stock handling live in
+`fkSettings/SecretWeapons.cpp`. General lobby packet hooks live in
+`fkSettings/FrontendNetwork.cpp`, which dispatches weapon schemes, extended
+options, computer-team metadata and colour-map messages through one shared path.
+Secret weapon names
 come from the language switch in `fkSettings/SecretWeaponsStrings.h`, rather
 than frontend string resources. The entries follow the 38 native weapons in
 this order:

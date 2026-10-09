@@ -11,7 +11,7 @@ namespace NetworkTeams
     constexpr uint32_t NativeAddTeamPacketSize = 0xc8;
     using LobbyPacket = std::array<unsigned char, NativeSnapshotPacketSize + 4 + 6 * 18>;
 
-    bool Install(); // Install after the shared lobby packet hooks in SecretWeapons.
+    bool Install(); // Install after the shared lobby packet hooks in FrontendNetwork.
     bool ExtendStartPacket(const void* packet, uint32_t length, StartPacket& extended);
     void ReceiveStartPacket(uint32_t sender, uint32_t host, const void* packet, uint32_t length);
     uint32_t LobbyPacketSize(uint32_t type);

@@ -93,7 +93,7 @@ the object's `0x1C` prefix, so controllers are at `game.dat` offsets
 
 Every frontend writes its own game configuration at launch. The DLL therefore
 extends start packet type 14 when the host has computer teams. It reuses the
-send/receive hooks installed by `SecretWeapons.cpp`, avoiding competing detours
+send/receive hooks installed by `FrontendNetwork.cpp`, avoiding competing detours
 on the same native functions.
 
 | Packet offset | Bytes | Contents |

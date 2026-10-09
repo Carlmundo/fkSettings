@@ -53,6 +53,47 @@ path remains intact until you choose a colour. Random entries are unavailable
 during imports. Reset restores the water list, selection and enabled state.
 The **Game controls** tab draws the same imported map in its terrain preview,
 including after switching tabs or choosing another import.
+Clicking this preview leaves colour-map mode before the native seed change.
+Terrain selection, the Terrain Editor and the next game then use generated terrain.
+Hosts also send the generated-map selection to joiners.
+The offline **Worms2** results tab (dialog 295, preview 1207) also draws the
+selected colour map using an owned overlay. Returning to this tab after a round
+preserves the selection; switching to generated terrain hides the overlay.
+Shared lobby packet send/receive hooks live in `FrontendNetwork.cpp`.
+`SecretWeapons.cpp` handles only its weapon-specific packet data, editor and
+scheme/stock hooks. Subsequent-round reception remains in `NetworkTeams.cpp`.
+
+Online lobby previews use different controls: 1207 for joiners and 1211 for the
+host, rather than Game controls' 1262. Both network results pages use 1207
+on the **Chat area** tab. Their initialization hooks attach the preview before
+network traffic or the next Start click, retaining the current session's map.
+Opening the host results page also queues its current map descriptor for every
+joiner on the current connection. Later selections use the direct metadata
+send channel, even if lobby destruction cleared the saved native send callback.
+The host keeps its revision sequence across the match handoff so a surviving
+joining dialog accepts these announcements and subsequent generated/imported
+selections. No terrain file is transferred.
+For joiners, the completed round's validated map has a display-only snapshot that
+survives native lobby destruction during startup. Dialog 246 restores it only
+for the same host. Fresh references (including missing or generated maps), a new
+lobby, or leaving results clear it. The snapshot never validates Go, confirms
+a hash, or supplies terrain to the engine; each new round still checks installed files. An owned child overlay draws the imported
+map inside these controls, preserving its aspect ratio against the blue preview
+background. Joiners also repaint the readonly thumbnail directly after native
+bitmap updates (results redraw RVA `0x643AA`, renderer `0x18841`). The renderer
+hook draws the imported preview into the tracked control's DC, preventing the
+native generated bitmap from painting over the overlay. Untracked controls and
+generated terrain still use the original renderer. The native control's
+procedure, styles and bounds remain untouched;
+its startup code can detach or replace its own procedure independently.
+The lobby receiver attaches the overlay after consuming a custom map reference,
+including when the first received packet is a reference. Accepted native Go,
+ready and start packets retain their original receiver path without extra lobby
+preview setup. Results use their existing window tracking. Closing the lobby
+clears network state without sending preview layout messages during destruction.
+Joiners draw their validated local copy of the host's map. New selections refresh
+that preview; a generated-map reference hides the overlay and reveals native
+rendering. Game controls continues to use its existing preview subclass.
 **Generate** (1031) clears the imported selection, returns both previews to
 native landscape rendering and restores the original controls, style list and
 selection before running the normal Generate command. **Cancel** restores the
@@ -282,6 +323,11 @@ retransmission deduplication, native dialog class/OK controls on separate UI
 threads, host Start-only checks and late-join suppression, shortened joiner paths,
 rapid updates on one worker, cancellation before creation and owner destruction,
 acknowledgements while a popup is open and cleanup on new selections/disconnect.
+Actual joining lobby/results dialog fixtures also verify two distinct installed
+map palettes, multiple joining player IDs, TCP/IP and IPX reference dispatch,
+generated-map reset and preview cleanup when the lobby closes. Startup fixtures
+replace the native preview procedure between Go and ready/start, checking that
+packet forwarding and the owned overlay survive without changing that procedure.
 Actual frontend instructions are mapped privately to verify all 18 hook sites,
 Go preflight, subsequent rounds, both engine launch barriers and code restoration.
 The IPX regression uses the actual native Send, Close and RunApplication
@@ -295,3 +341,32 @@ round-trips Unicode filenames, and validates/publishes Birthday from a local
 installed file using an 83-byte reference. These fixtures run on the development
 PC; live multiplayer play on XP, TCP/IP and IPX still requires the manual checks
 in `tests/ManualTests.md`.
+
+## IPX provider compatibility
+
+The supplied XP fault report identifies an unchecked call to the provider's
+optional `DeletePlayer` callback at `dplayx.dll` 5.3.2600.5512 RVA `0x13E28`, with
+return address `0x13E2B`. Its IPX receive worker calls address zero after the
+joiner sends ready packet 30. The inspected `dpwsockx_ipx.dll` initializes
+`CreatePlayer` but leaves `DeletePlayer` null. This fault is separate from map
+validation and occurs before engine launch; the reported generated-map crashes
+mean live retesting must include both map types.
+
+`DirectPlayCompat` adapts the named `SPInit` export of `dpwsockx_ipx.dll` and,
+after successful initialization, supplies a success callback only if
+`DeletePlayer` is absent and the callback table is large enough. The wrapper has
+no player cleanup callback or separately owned player resources; DirectPlay
+owns its copied SP player data. Existing callbacks, other provider modules,
+other exports, initialization results and ordinal lookups are preserved. XP's
+DLL resolves `SPInit` by name at RVA `0x6FF1` through `GetProcAddress`, so the fix
+applies before its provider callback table is used. The provider ABI is checked
+against [Wine's DirectPlay service-provider header](https://github.com/wine-mirror/wine/blob/master/include/wine/dplaysp.h).
+
+Main and XP-toolset tests reproduce the unchecked null call with the native
+object/callback offsets and calling convention, then verify it succeeds with
+the compatibility callback. They also check existing callbacks, arguments,
+failed initialization, short tables and actual export-hook forwarding. An
+optional fourth argument to `ColourMapsTests.exe` supplies the installed
+`dpwsockx_ipx.dll` path to verify its real export is adapted without running
+the provider. Live testing with the Windows 11 host and XP/Vista joiners
+confirmed that this compatibility fix resolves the startup crash.

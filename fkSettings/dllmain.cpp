@@ -21,6 +21,7 @@ typedef struct IUnknown IUnknown;
 #include <string>
 #include <vector>
 #include <cstdio>
+#include "DirectPlayCompat.h"
 
 #ifdef _X86_
 extern "C" { int _afxForceUSRDLL; }
@@ -31,6 +32,7 @@ extern "C" { int __afxForceUSRDLL; }
 #include "include/MinHook.h"
 #include "Hooks.h"
 #include "SecretWeapons.h"
+#include "FrontendNetwork.h"
 #include "NetworkTeams.h"
 #include "ExtendedOptions.h"
 #include "ColourMaps.h"
@@ -831,6 +833,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
             return 1;
         }
 
+        if (!DirectPlayCompat::Install())
+            OutputDebugStringA("fkSettings: IPX provider compatibility fix is unavailable.\n");
+
         DWORD CFormViewSetWindowPos4Addr = Hooks::scanPattern2("CFormViewSetWindowPos4", "E8 55 4E 09 00 8B 45 F0 83 C0");
         DWORD CFormViewSetWindowPos5Addr = Hooks::scanPattern2("CFormViewSetWindowPos5", "E8 06 4E 09 00 8D 4D A4 E8 13 3C");
 
@@ -852,11 +857,14 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         if (!WaterFix::Install())
             OutputDebugStringA("fkSettings: water colour preview fix is unavailable.\n");
 
-        const bool lobbyNetworkHooks = SecretWeapons::Install();
+        const bool weaponHooks = SecretWeapons::Install();
+        const bool lobbyNetworkHooks = weaponHooks && FrontendNetwork::Install();
         bool roundNetworkHooks = false;
-        if (!lobbyNetworkHooks)
+        if (!weaponHooks)
             OutputDebugStringA("fkSettings: Secret weapon editor is unavailable.\n");
-        else
+        else if (!lobbyNetworkHooks)
+            OutputDebugStringA("fkSettings: Frontend network hooks are unavailable.\n");
+        if (lobbyNetworkHooks)
         {
             if (!ExtendedOptions::Install())
                 OutputDebugStringA("fkSettings: Extended Options are unavailable.\n");

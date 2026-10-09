@@ -170,7 +170,7 @@ PE timestamp `0x3587BE19`. Translated resource variants may have different image
 sizes. Installation checks the PE architecture, timestamp, and all hook
 signatures before modifying code, and rolls back hooks
 if installation fails. It depends on the shared CRT/network hooks installed
-by `SecretWeapons`; it installs independently of the network computer-team
+by `SecretWeapons` (CRT) and `FrontendNetwork` (lobby packets); it installs independently of the network computer-team
 feature.
 
 | RVA | Purpose |

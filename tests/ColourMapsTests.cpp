@@ -1,9 +1,13 @@
 #include <cstdio>
 #include <filesystem>
+#include "../fkSettings/DirectPlayCompat.cpp"
 #include "../fkSettings/ColourMaps.cpp"
 #include "../fkSettings/SecretWeapons.cpp"
+#include "../fkSettings/FrontendNetwork.cpp"
+namespace FN = FrontendNetwork;
 #include "../fkSettings/ExtendedOptions.cpp"
 #include "../fkSettings/NetworkTeams.cpp"
+#include "DirectPlayCompatTests.h"
 
 namespace CM = ColourMaps;
 static void Check(bool condition, const char* message) { if (!condition) throw std::runtime_error(message); }
@@ -151,7 +155,13 @@ static void ParserTests(const CM::Map& map)
 }
 
 static int nativeCalls = 0;
-static void __fastcall NativeGenerate(void*, void*) { ++nativeCalls; }
+static const CM::Map* nativeGeneratedMap = nullptr;
+static void __fastcall NativeGenerate(void*, void*)
+{
+    ++nativeCalls;
+    if (nativeGeneratedMap)
+        Check(CM::Publish(*nativeGeneratedMap, CM::GameDirectory() + L"\\Data\\land.dat"), "native generator fixture writes new terrain");
+}
 static const CM::Map* launchExpectedMap = nullptr;
 static int __fastcall NativeLaunch(void*, void*, const char*)
 {
@@ -531,6 +541,22 @@ static void EditorTests(const char* frontend, const CM::Map& map)
     Check(EqualRect(&originalGameBounds, &restoredGameBounds) != FALSE, "native Game controls preview bounds restored");
     Check(GetWindowLongW(gamePreview, GWL_STYLE) == originalGameStyle &&
         GetWindowLongW(gamePreview, GWL_EXSTYLE) == originalGameExtendedStyle, "native preview frame styles restored");
+    // Use the same reset as the native thumbnail seed-change detour. Verify
+    // that its native handler runs after both pages leave imported-map mode.
+    CM::originalRegeneratePreview = reinterpret_cast<CM::NativeVoid>(NativeGenerate);
+    for (bool hosting : { false, true })
+    {
+        CM::ResetNetwork(); CM::network.hosting = hosting;
+        CM::selected.reset(new CM::Map(map)); CM::RefreshAll();
+        const int before = nativeCalls;
+        CM::RegeneratePreviewForCaller(nullptr, CM::image + 0x18cc9);
+        GetWindowRect(gamePreview, &restoredGameBounds);
+        Check(!CM::selected && nativeCalls == before + 1 && EqualRect(&originalGameBounds, &restoredGameBounds) &&
+            !(GetWindowLongW(previewLabel, GWL_STYLE) & WS_VISIBLE) &&
+            !(GetWindowLongW(CM::pages[0]->preview, GWL_STYLE) & WS_VISIBLE),
+            "offline/host thumbnail regeneration restores normal previews and forwards native seed change");
+    }
+    CM::ResetNetwork();
     DestroyWindow(window); DestroyWindow(gameControls); DestroyWindow(parent); FreeLibrary(resources);
     DeleteObject(nativeLabelFont);
     Check(CM::pages.empty() && CM::gamePreviews.empty(), "both tabs clean up preview state");
@@ -627,8 +653,43 @@ static void CallerTests(BYTE* frontend, const CM::Map& map)
     const int callsBeforeReset = nativeCalls;
     runCall(0x79567, terrain.data());
     Check(nativeCalls == callsBeforeReset + 1, "real Go preparation regenerates terrain after reset");
+    CM::originalRegeneratePreview = reinterpret_cast<CM::NativeVoid>(NativeGenerate);
+    auto runPreviewCall = [&](size_t call) {
+        BYTE* entry = frontend + call - 5;
+        std::array<BYTE, 11> saved{}; memcpy(saved.data(), entry, saved.size());
+        DWORD old = 0; Check(VirtualProtect(entry, saved.size(), PAGE_EXECUTE_READWRITE, &old) != FALSE, "protect preview seed-change CALL");
+        entry[0] = 0xb9; const uint32_t address = reinterpret_cast<uint32_t>(terrain.data()); memcpy(entry + 1, &address, 4);
+        entry[10] = 0xc3; FlushInstructionCache(GetCurrentProcess(), entry, saved.size());
+        reinterpret_cast<void(__cdecl*)()>(entry)();
+        memcpy(entry, saved.data(), saved.size()); FlushInstructionCache(GetCurrentProcess(), entry, saved.size());
+        VirtualProtect(entry, saved.size(), old, &old);
+    };
+    auto generated = map; Put(generated.bytes, 16, !map.cavern);
+    for (bool hosting : { false, true })
+    {
+        CM::ResetNetwork(); CM::network.hosting = hosting;
+        CM::selected.reset(new CM::Map(map)); CM::launchFailed = true;
+        runPreviewCall(0x43440);
+        Check(CM::selected && CM::launchFailed, "native terrain-setting initialization does not discard an import");
+        runPreviewCall(0x18cc4);
+        Check(!CM::selected && !CM::launchFailed, "actual thumbnail left-click seed-change CALL clears the import offline and as host");
+        nativeGeneratedMap = &generated;
+        const int calls = nativeCalls;
+        runCall(hosting ? 0x35814 : 0x79567, terrain.data());
+        nativeGeneratedMap = nullptr;
+        Check(nativeCalls == calls + 1 && CM::Load(destination.c_str()).bytes == generated.bytes,
+            "preparation after preview click uses native generated terrain");
+        // Opening the native terrain editor also goes through Generate.
+        CM::GenerateForCaller(terrain.data(), frontend + 0x5f0f4);
+        launchExpectedMap = &generated;
+        if (hosting) reinterpret_cast<CM::NativeVoid>(frontend + 0x358a4)(nullptr);
+        else runCall(0x7958c, nullptr);
+        launchExpectedMap = nullptr;
+        Check(CM::Load(destination.c_str()).bytes == generated.bytes, "editor and launch leave the newly generated map intact");
+    }
+    CM::ResetNetwork();
     std::filesystem::remove(directory / "land.dat"); std::filesystem::remove(directory);
-    puts("PASS: supplied normal Go and next-round CALL instructions preserve imported terrain through the engine-launch boundary");
+    puts("PASS: actual preview seed-change, normal Go and next-round CALLs preserve the selected generated/imported terrain through engine launch");
 }
 
 static std::vector<std::vector<BYTE>> mapPackets;
@@ -679,6 +740,32 @@ static LRESULT CALLBACK HeartbeatProc(HWND window, UINT message, WPARAM wparam, 
     if (message == WM_APP + 1) { ++heartbeats; return 0; }
     return DefSubclassProc(window, message, wparam, lparam);
 }
+static void PreviewResetNetworkTests(const CM::Map& sample)
+{
+    const uint32_t peers[] = { 20, 30 };
+    memcpy(CM::image + 0x1a7698 + 0x108c, peers, sizeof(peers));
+    CM::enabled = true; CM::ResetNetwork(); CM::network.hosting = true; CM::network.source = 10;
+    CM::network.send = CaptureMap;
+    CM::selected.reset(new CM::Map(sample)); CM::SelectionChanged();
+    const auto revision = CM::network.outgoing.revision;
+    CM::originalRegeneratePreview = reinterpret_cast<CM::NativeVoid>(NativeGenerate);
+    CM::RegeneratePreviewForCaller(nullptr, CM::image + 0x18cc9);
+    Check(!CM::selected && !CM::network.outgoingMap && !CM::network.outgoing.size && CM::network.outgoing.revision > revision &&
+        CM::network.checks.size() == 1 && CM::network.checks.front().players.size() == 2,
+        "host preview click replaces pending colour selection with generated references for every peer");
+    const auto reset = CM::network.checks.front().packet;
+    CM::ResetNetwork(); CM::network.joining = true; CM::network.remote.reset(new CM::Map(sample));
+    uint32_t length = static_cast<uint32_t>(reset.size());
+    Check(!CM::ReceiveNetwork(10, 10, reset.data(), length) && !CM::PreviewMap() && !CM::network.failed,
+        "joiner restores native preview after host thumbnail regeneration");
+    CM::network.remote.reset(new CM::Map(sample)); CM::selected.reset(new CM::Map(sample));
+    CM::RegeneratePreviewForCaller(nullptr, CM::image + 0x18cc9);
+    Check(CM::selected && CM::PreviewMap(), "joining preview cannot clear the host's imported selection");
+    CM::selected.reset(); CM::ResetNetwork();
+    const uint32_t empty[] = { 0, 0 }; memcpy(CM::image + 0x1a7698 + 0x108c, empty, sizeof(empty));
+    puts("PASS: host preview regeneration resets installed-map references and joining previews");
+}
+
 static void PacedNetworkTests(const CM::Map& sample)
 {
     const uint32_t peer = 20; memcpy(CM::image + 0x1a7698 + 0x108c, &peer, 4);
@@ -1436,11 +1523,11 @@ static void NetworkTests(const CM::Map& sample)
 static void SharedNetworkTests(const CM::Map& map)
 {
     namespace SW = SecretWeapons; namespace NT = NetworkTeams; namespace EO = ExtendedOptions;
-    SW::image = NT::image = EO::image = CM::image;
+    FN::image = SW::image = NT::image = EO::image = CM::image;
     NT::enabled = EO::enabled = CM::enabled = true;
-    SW::originalSendToAll = reinterpret_cast<SW::SendToAll>(CaptureBroadcast);
-    SW::originalSendToPlayer = reinterpret_cast<SW::SendToPlayer>(CaptureTarget);
-    SW::originalReceivePacket = reinterpret_cast<SW::ReceivePacket>(CaptureDispatch);
+    FN::originalSendToAll = reinterpret_cast<FN::SendToAll>(CaptureBroadcast);
+    FN::originalSendToPlayer = reinterpret_cast<FN::SendToPlayer>(CaptureTarget);
+    FN::originalReceivePacket = reinterpret_cast<FN::ReceivePacket>(CaptureDispatch);
     NT::originalReceiveRoundPacket = reinterpret_cast<NT::ReceiveRoundPacket>(CaptureDispatch);
     BYTE* game = CM::image + NT::GameRva;
     strcpy_s(reinterpret_cast<char*>(game + NT::TeamOffset + 2), 17, "Map CPU");
@@ -1457,19 +1544,19 @@ static void SharedNetworkTests(const CM::Map& map)
         for (bool round : { false, true })
         {
             CM::network = CM::NetworkState{}; mapPackets.clear();
-            SW::SendWeaponPacketToAll(nullptr, nullptr, 10, go.data(), sizeof(go));
+            FN::SendPacketToAll(nullptr, nullptr, 10, go.data(), sizeof(go));
             DrainMapTransfers();
-            SW::SendWeaponPacketToAll(nullptr, nullptr, 10, start.data(), sizeof(start));
+            FN::SendPacketToAll(nullptr, nullptr, 10, start.data(), sizeof(start));
             DrainMapTransfers();
             Check(mapPackets.back().size() == NT::StartPacket{}.size() + sizeof(CM::MapIdentity), "shared send combines CPU and map metadata");
             std::array<BYTE, SW::NativeWeaponPacketSize> weapons{};
             const uint32_t weaponType = SW::WeaponSchemePacketType; memcpy(weapons.data(), &weaponType, 4);
             SW::secretStocks.fill(7);
-            SW::SendWeaponPacketToAll(nullptr, nullptr, 10, weapons.data(), static_cast<uint32_t>(weapons.size()));
+            FN::SendPacketToAll(nullptr, nullptr, 10, weapons.data(), static_cast<uint32_t>(weapons.size()));
             std::array<BYTE, EO::NativePacketSize> options{};
             const uint32_t optionType = 0x19; memcpy(options.data(), &optionType, 4);
             EO::values.fill(0); EO::values[0] = 1;
-            SW::SendWeaponPacketToAll(nullptr, nullptr, 10, options.data(), static_cast<uint32_t>(options.size()));
+            FN::SendPacketToAll(nullptr, nullptr, 10, options.data(), static_cast<uint32_t>(options.size()));
             const auto packets = mapPackets;
             CM::network = CM::NetworkState{}; dispatched = 0;
             SW::secretStocks.fill(0); EO::values.fill(0);
@@ -1481,7 +1568,7 @@ static void SharedNetworkTests(const CM::Map& map)
             {
                 const uint32_t length = static_cast<uint32_t>(packet.size()) + reliable * 4;
                 if (round) NT::ReceiveNextRoundPacket(object.data(), nullptr, host, packet.data(), length);
-                else SW::ReceiveWeaponPacket(object.data(), nullptr, host, packet.data(), length);
+                else FN::ReceiveLobbyPacket(object.data(), nullptr, host, packet.data(), length);
             }
             Check(dispatched == 4 && CM::NetworkMap() && CM::NetworkMap()->bytes == map.bytes,
                 "shared lobby/results receiver consumes path references and forwards native Go/start on both transports");
@@ -1503,6 +1590,138 @@ static void SharedNetworkTests(const CM::Map& map)
     NT::enabled = EO::enabled = false;
     std::filesystem::remove(directory / "land.dat"); std::filesystem::remove(directory);
     puts("PASS: actual shared send/lobby/results hooks combine maps, CPU teams, weapons and options on both transports; results cleanup");
+}
+
+static void JoiningPreviewTests(const char* frontend, const CM::Map& sample)
+{
+    namespace SW = SecretWeapons; namespace NT = NetworkTeams;
+    HMODULE resources = LoadLibraryExA(frontend, nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    Check(resources != nullptr, "load joining lobby dialog resources");
+    HWND parent = CreateWindowW(L"STATIC", L"Joining preview fixture", WS_OVERLAPPEDWINDOW,
+        0, 0, 900, 500, nullptr, nullptr, nullptr, nullptr);
+    Check(parent != nullptr, "create joining page parent");
+    const auto directory = std::filesystem::absolute("Release/Data");
+    Check(!std::filesystem::exists(directory), "isolated joining preview publication fixture");
+    std::filesystem::create_directory(directory);
+    std::array<CM::Map, 2> maps;
+    const std::array<COLORREF, 2> colors{ RGB(230, 20, 10), RGB(10, 20, 230) };
+    uint32_t spawns = 0; memcpy(&spawns, sample.bytes.data() + 20, 4);
+    const size_t foreground = 28 + spawns * 8;
+    Check(sample.bytes[foreground + 8] == 0 && sample.bytes[foreground + 9] == 8 &&
+        (sample.bytes[foreground + 10] & 0x80), "palette fixture uses standard indexed IMG header");
+    const unsigned paletteSize = sample.bytes[foreground + 11] | (sample.bytes[foreground + 12] << 8);
+    for (size_t i = 0; i < maps.size(); ++i)
+    {
+        auto bytes = sample.bytes;
+        for (unsigned color = 0; color < paletteSize; ++color)
+        {
+            const size_t offset = foreground + 13 + color * 3;
+            bytes[offset] = GetRValue(colors[i]); bytes[offset + 1] = GetGValue(colors[i]); bytes[offset + 2] = GetBValue(colors[i]);
+        }
+        maps[i] = CM::Parse(std::move(bytes));
+        maps[i].relativePath = L"Online Worms\\Preview " + std::to_wstring(i + 1) + L".dat";
+        Check(CM::Publish(maps[i], CM::ImportedPath(maps[i].relativePath)), "stage distinct installed preview map");
+        maps[i] = CM::LoadImported(maps[i].relativePath);
+    }
+    const auto savedLobbyReceive = FN::originalReceivePacket;
+    const auto savedRoundReceive = NT::originalReceiveRoundPacket;
+    FN::image = SW::image = NT::image = CM::image;
+    FN::originalReceivePacket = reinterpret_cast<FN::ReceivePacket>(CaptureDispatch);
+    NT::originalReceiveRoundPacket = reinterpret_cast<NT::ReceiveRoundPacket>(CaptureDispatch);
+    CM::enabled = true;
+    // A joining lobby/results page is not created by the Game controls hook.
+    for (uint32_t reliable : { 0u, 1u })
+        for (uint32_t peer : { 20u, 30u })
+            for (int dialogId : { 205, 245, 246 })
+            {
+                CM::ResetNetwork(); CM::selected.reset(new CM::Map(maps[1]));
+                memcpy(CM::image + 0x188b14, &reliable, 4); memcpy(CM::image + 0x1892ac, &peer, 4);
+                HWND window = CreateDialogParamW(resources, MAKEINTRESOURCEW(dialogId), parent, DialogProc, 0);
+                HWND preview = GetDlgItem(window, 1207);
+                Check(preview && CM::gamePreviews.empty(), "joiner has its own unattached preview control 1207");
+                RECT original{}; GetWindowRect(preview, &original);
+                const LONG style = GetWindowLongW(preview, GWL_STYLE), extended = GetWindowLongW(preview, GWL_EXSTYLE);
+                const LONG_PTR nativeProcedure = GetWindowLongPtrW(preview, GWLP_WNDPROC);
+                const bool round = dialogId != 205;
+                std::vector<BYTE> object(0x3700); const uint32_t host = 10;
+                memcpy(object.data() + 28, &window, sizeof(window));
+                memcpy(object.data() + (round ? 0xa8 : 0x163c), &host, 4);
+                auto receive = [&](const CM::Map* map, uint32_t revision) {
+                    CM::MapIdentity identity; identity.revision = revision;
+                    if (map) { identity.size = static_cast<uint32_t>(map->bytes.size()); identity.crc = CM::Checksum(map->bytes); }
+                    const auto packet = CM::ReferencePacket(map, identity);
+                    const uint32_t length = static_cast<uint32_t>(packet.size()) + reliable * 4;
+                    if (round) NT::ReceiveNextRoundPacket(object.data(), nullptr, host, packet.data(), length);
+                    else FN::ReceiveLobbyPacket(object.data(), nullptr, host, packet.data(), length);
+                };
+                HDC dc = CreateCompatibleDC(nullptr);
+                BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                info.bmiHeader.biWidth = 600; info.bmiHeader.biHeight = -300;
+                info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32;
+                void* pixels = nullptr; HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+                Check(bitmap != nullptr, "create joining preview paint surface");
+                HGDIOBJ previous = SelectObject(dc, bitmap);
+                for (size_t i = 0; i < maps.size(); ++i)
+                {
+                    receive(&maps[i], static_cast<uint32_t>(i + 1));
+                    Check(CM::network.window == window && CM::network.remote && !CM::network.failed &&
+                        CM::network.remote->bytes == maps[i].bytes && CM::gamePreviews.size() == 1,
+                        "first custom packet attaches joining preview and map changes retain one subclass");
+                    Check(CM::PreviewMap() == CM::network.remote.get(), "joining preview uses the received map instead of local selection");
+                    const auto& attached = CM::gamePreviews.front();
+                    Check(attached.nativeWindow == preview && attached.window != preview && GetParent(attached.window) == preview,
+                        "joining colour preview is an owned overlay instead of a native-control subclass");
+                    RECT bounds{}; GetClientRect(attached.window, &bounds);
+                    const RECT picture = CM::MapRectangle(bounds);
+                    Check(abs((picture.bottom - picture.top) * 1920 - (picture.right - picture.left) * 696) <= 1920,
+                        "joining overlay preserves imported aspect ratio inside native bounds");
+                    Check(GetWindowLongPtrW(preview, GWLP_WNDPROC) == nativeProcedure && GetWindowLongW(preview, GWL_STYLE) == style &&
+                        GetWindowLongW(preview, GWL_EXSTYLE) == extended, "map updates leave native procedure and styles untouched");
+                    std::fill_n(static_cast<uint32_t*>(pixels), 600 * 300, 0x00333333);
+                    SendMessageW(attached.window, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT); GdiFlush();
+                    const uint32_t expected = (GetRValue(colors[i]) << 16) | (GetGValue(colors[i]) << 8) | GetBValue(colors[i]);
+                    bool painted = false;
+                    for (LONG y = 0; y < bounds.bottom; ++y)
+                        for (LONG x = 0; x < bounds.right; ++x)
+                            painted |= static_cast<uint32_t*>(pixels)[y * 600 + x] == expected;
+                    Check(painted, "joining preview paints the newly received palette on both transports");
+                }
+                auto nativePacket = [&](uint32_t type) {
+                    std::vector<BYTE> packet(type == 14 ? 20 : 8);
+                    Put(packet, 0, type);
+                    const auto identity = CM::network.complete;
+                    const BYTE* trailer = reinterpret_cast<const BYTE*>(&identity);
+                    packet.insert(packet.end(), trailer, trailer + sizeof(identity));
+                    const uint32_t length = static_cast<uint32_t>(packet.size()) + reliable * 4;
+                    if (round) NT::ReceiveNextRoundPacket(object.data(), nullptr, host, packet.data(), length);
+                    else FN::ReceiveLobbyPacket(object.data(), nullptr, host, packet.data(), length);
+                };
+                nativePacket(27);
+                Check(CM::NetworkMap() && CM::NetworkMap()->bytes == maps[1].bytes, "joining Go freezes terrain before native startup");
+                // MFC/native startup can replace the control's own procedure.
+                // Our overlay must survive without restoring or chaining it.
+                SetWindowLongPtrW(preview, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(DefWindowProcW));
+                const int beforeStart = dispatched;
+                nativePacket(29); nativePacket(14);
+                Check(dispatched == beforeStart + 2 && GetWindowLongPtrW(preview, GWLP_WNDPROC) == reinterpret_cast<LONG_PTR>(DefWindowProcW) &&
+                    IsWindow(CM::gamePreviews.front().window), "native ready/start retains its procedure after detachment and leaves overlay intact");
+                receive(nullptr, 3);
+                RECT restored{}; GetWindowRect(preview, &restored);
+                Check(!CM::network.remote && EqualRect(&original, &restored) && GetWindowLongW(preview, GWL_STYLE) == style &&
+                    GetWindowLongW(preview, GWL_EXSTYLE) == extended, "generated selection restores native joining preview geometry and styles");
+                Check(!(GetWindowLongW(CM::gamePreviews.front().window, GWL_STYLE) & WS_VISIBLE), "generated terrain hides the owned overlay");
+                SetWindowLongPtrW(preview, GWLP_WNDPROC, nativeProcedure);
+                SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc);
+                DestroyWindow(window);
+                Check(CM::gamePreviews.empty() && !CM::network.joining && !CM::network.window,
+                    "closing joining lobby/results removes preview subclass and remote state");
+            }
+    FN::originalReceivePacket = savedLobbyReceive; NT::originalReceiveRoundPacket = savedRoundReceive;
+    CM::selected.reset(); CM::enabled = false; CM::ResetNetwork();
+    for (const auto& map : maps) std::filesystem::remove(CM::ImportedPath(map.relativePath));
+    std::filesystem::remove(directory / "land.dat"); std::filesystem::remove(directory);
+    DestroyWindow(parent); FreeLibrary(resources);
+    puts("PASS: actual joining lobby/results previews follow two installed colour maps and native reset for multiple players on TCP/IP and IPX");
 }
 
 static int nativeGoCalls = 0;
@@ -1598,6 +1817,383 @@ static void HostGoPreflightTests(BYTE* frontend, const CM::Map& map)
 }
 
 
+static int localRoundInitResult = 1;
+static int __fastcall LocalRoundInitFixture(void*, void*) { return localRoundInitResult; }
+static void OfflineRoundPreviewTests(BYTE* frontend, const char* path, const CM::Map& map)
+{
+    HMODULE resources = LoadLibraryExA(path, nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    Check(resources != nullptr, "load offline results resources");
+    HWND parent = CreateWindowW(L"STATIC", L"Offline results fixture", WS_OVERLAPPEDWINDOW,
+        0, 0, 900, 500, nullptr, nullptr, nullptr, nullptr);
+    Check(parent != nullptr, "create offline results parent");
+    CM::ResetNetwork(); CM::selected.reset(new CM::Map(map));
+    CM::selected->pixels.assign(1920 * 696, 1);
+    CM::selected->palette[1] = RGBQUAD{ 30, 20, 230, 0 };
+    const auto originalInit = CM::originalCreateLocalRound;
+    CM::originalCreateLocalRound = reinterpret_cast<CM::NativeInit>(LocalRoundInitFixture);
+    for (unsigned round = 0; round < 2; ++round)
+    {
+        HWND window = CreateDialogParamW(resources, MAKEINTRESOURCEW(295), parent, DialogProc, 0);
+        HWND preview = GetDlgItem(window, 1207);
+        Check(preview && CM::gamePreviews.empty(), "offline Worms2 results uses its own preview 1207");
+        const auto procedure = GetWindowLongPtrW(preview, GWLP_WNDPROC);
+        RECT originalBounds{}; GetWindowRect(preview, &originalBounds);
+        const LONG style = GetWindowLongW(preview, GWL_STYLE);
+        std::array<BYTE, 32> object{}; memcpy(object.data() + 28, &window, sizeof(window));
+        localRoundInitResult = 0;
+        Check(reinterpret_cast<CM::NativeInit>(frontend + 0x77c0e)(object.data()) == 0 && CM::gamePreviews.empty(),
+            "failed offline results initialization does not attach a preview");
+        localRoundInitResult = 1;
+        Check(reinterpret_cast<CM::NativeInit>(frontend + 0x77c0e)(object.data()) == 1 && CM::gamePreviews.size() == 1,
+            "actual offline results initialization detour attaches the selected colour preview");
+        Check(CM::AttachGamePreview(window, 1207) && CM::gamePreviews.size() == 1, "offline results preview attachment is idempotent");
+        HWND overlay = CM::gamePreviews.front().window;
+        Check(CM::gamePreviews.front().nativeWindow == preview && overlay != preview &&
+            SendMessageW(overlay, WM_NCHITTEST, 0, 0) == HTTRANSPARENT,
+            "offline results overlay leaves clicks available to native thumbnail regeneration");
+        HDC dc = CreateCompatibleDC(nullptr);
+        BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = 600;
+        info.bmiHeader.biHeight = -300; info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32;
+        void* pixels = nullptr; HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+        Check(bitmap != nullptr, "create offline results preview surface");
+        HGDIOBJ previous = SelectObject(dc, bitmap);
+        for (unsigned tabChange = 0; tabChange < 3; ++tabChange)
+        {
+            ShowWindow(window, SW_HIDE); ShowWindow(window, SW_SHOW);
+            std::fill_n(static_cast<uint32_t*>(pixels), 600 * 300, 0x00333333);
+            SendMessageW(overlay, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT); GdiFlush();
+            RECT bounds{}; GetClientRect(overlay, &bounds);
+            Check(GetPixel(dc, bounds.right / 2, bounds.bottom / 2) == RGB(230, 20, 30) && CM::selected &&
+                !CM::network.joining && !CM::network.hosting,
+                "reopening offline Worms2 tab paints the current colour map without changing map/session state");
+        }
+        CM::UseGeneratedMap();
+        Check(!(GetWindowLongW(overlay, GWL_STYLE) & WS_VISIBLE) && GetWindowLongPtrW(preview, GWLP_WNDPROC) == procedure &&
+            GetWindowLongW(preview, GWL_STYLE) == style, "generated reset reveals the unmodified native offline results preview");
+        RECT bounds{}; GetWindowRect(preview, &bounds);
+        Check(EqualRect(&originalBounds, &bounds), "offline results native geometry remains unchanged");
+        CM::selected.reset(new CM::Map(map)); CM::selected->pixels.assign(1920 * 696, 1);
+        CM::selected->palette[1] = RGBQUAD{ 30, 20, 230, 0 }; CM::RefreshAll();
+        Check(GetWindowLongW(overlay, GWL_STYLE) & WS_VISIBLE, "another import restores the results colour preview");
+        SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc);
+        DestroyWindow(window);
+        Check(CM::gamePreviews.empty() && CM::selected, "offline results destruction removes overlay and preserves next-round selection");
+    }
+    CM::originalCreateLocalRound = originalInit; CM::selected.reset();
+    DestroyWindow(parent); FreeLibrary(resources);
+    puts("PASS: actual offline Worms2 results dialog/init hook, repeated rounds/tab changes, colour preview, native reset and click-through");
+}
+
+static void NetworkRoundPreviewTests(BYTE* frontend, const char* path, const CM::Map& map)
+{
+    HMODULE resources = LoadLibraryExA(path, nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    Check(resources != nullptr, "load network Chat area resources");
+    HWND parent = CreateWindowW(L"STATIC", L"Network results fixture", WS_OVERLAPPEDWINDOW,
+        0, 0, 900, 500, nullptr, nullptr, nullptr, nullptr);
+    Check(parent != nullptr, "create network results parent");
+    const auto originalHost = CM::originalHostRoundInit, originalJoin = CM::originalJoinRoundInit;
+    CM::originalHostRoundInit = CM::originalJoinRoundInit = reinterpret_cast<CM::NativeInit>(LocalRoundInitFixture);
+    localRoundInitResult = 1;
+    for (uint32_t reliable : { 0u, 1u })
+        for (bool joining : { false, true })
+            for (unsigned round = 0; round < 2; ++round)
+            {
+                CM::ResetNetwork(); memcpy(CM::image + 0x188b14, &reliable, 4);
+                CM::network.hosting = !joining; CM::network.joining = joining; CM::network.host = joining ? 10 : 0;
+                CM::selected.reset(new CM::Map(map));
+                CM::selected->pixels.assign(1920 * 696, 1); CM::selected->palette[1] = RGBQUAD{ 30, 20, 230, 0 };
+                if (joining)
+                {
+                    CM::network.remote.reset(new CM::Map(*CM::selected));
+                    CM::network.remote->palette[1] = RGBQUAD{ 230, 20, 30, 0 };
+                }
+                CM::network.round = { CM::MapTrailerMagic, round + 1, static_cast<uint32_t>(map.bytes.size()), CM::Checksum(map.bytes) };
+                CM::network.complete = CM::network.incoming = CM::network.round;
+                CM::network.roundMap.reset(new CM::Map(joining ? *CM::network.remote : *CM::selected));
+                const auto identity = CM::network.round;
+                CM::network.acknowledgements[0].push_back(20);
+                HWND window = CreateDialogParamW(resources, MAKEINTRESOURCEW(joining ? 246 : 245), parent, DialogProc, 0);
+                HWND preview = GetDlgItem(window, 1207);
+                Check(preview && !GetDlgItem(window, 1211) && CM::gamePreviews.empty(), "host/joiner results Chat area uses preview 1207");
+                const auto procedure = GetWindowLongPtrW(preview, GWLP_WNDPROC);
+                std::array<BYTE, 0xac> object{}; const uint32_t host = 10;
+                memcpy(object.data() + 28, &window, sizeof(window)); memcpy(object.data() + 0xa8, &host, 4);
+                const size_t init = joining ? 0x634c7 : 0x611a6;
+                localRoundInitResult = 0;
+                Check(reinterpret_cast<CM::NativeInit>(frontend + init)(object.data()) == 0 && CM::gamePreviews.empty(),
+                    "failed network results initialization does not attach a preview");
+                localRoundInitResult = 1;
+                Check(reinterpret_cast<CM::NativeInit>(frontend + init)(object.data()) == 1 && CM::gamePreviews.size() == 1 &&
+                    CM::network.window == window && CM::SameIdentity(CM::network.round, identity) && CM::NetworkMap() &&
+                    CM::network.acknowledgements[0].size() == 1 && CM::network.joining == joining && CM::network.hosting == !joining,
+                    "actual host/joiner results init attaches preview before traffic without resetting the round");
+                CM::WatchNetworkWindow(object.data());
+                Check(CM::gamePreviews.size() == 1 && CM::gamePreviews.front().nativeWindow == preview &&
+                    GetWindowLongPtrW(preview, GWLP_WNDPROC) == procedure, "results tracking preserves one overlay and native procedure");
+                HWND overlay = CM::gamePreviews.front().window;
+                HDC dc = CreateCompatibleDC(nullptr);
+                BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = 600;
+                info.bmiHeader.biHeight = -300; info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32;
+                void* pixels = nullptr; HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+                Check(bitmap != nullptr, "create network results paint surface");
+                HGDIOBJ previous = SelectObject(dc, bitmap);
+                RECT bounds{}; GetClientRect(overlay, &bounds);
+                const RECT picture = CM::MapRectangle(bounds);
+                Check(abs((picture.bottom - picture.top) * 1920 - (picture.right - picture.left) * 696) <= 1920,
+                    "network Chat area preview preserves map aspect ratio");
+                for (unsigned tab = 0; tab < 3; ++tab)
+                {
+                    ShowWindow(window, SW_HIDE); ShowWindow(window, SW_SHOW);
+                    std::fill_n(static_cast<uint32_t*>(pixels), 600 * 300, 0x00333333);
+                    SendMessageW(overlay, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT); GdiFlush();
+                    Check(GetPixel(dc, bounds.right / 2, bounds.bottom / 2) == (joining ? RGB(30, 20, 230) : RGB(230, 20, 30)) &&
+                        (GetWindowLongW(overlay, GWL_STYLE) & WS_VISIBLE), "Chat area paints host-selected/joiner-validated colour map between rounds on both transports");
+                }
+                if (joining) CM::network.remote.reset(); else CM::selected.reset();
+                CM::RefreshAll();
+                Check(!(GetWindowLongW(overlay, GWL_STYLE) & WS_VISIBLE) && GetWindowLongPtrW(preview, GWLP_WNDPROC) == procedure,
+                    "network results generated reset restores native preview");
+                SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc);
+                DestroyWindow(window);
+                Check(CM::gamePreviews.empty() && !CM::network.window && !CM::network.hosting && !CM::network.joining,
+                    "network results close removes overlays and session state");
+            }
+    CM::originalHostRoundInit = originalHost; CM::originalJoinRoundInit = originalJoin;
+    CM::selected.reset(); CM::ResetNetwork(); DestroyWindow(parent); FreeLibrary(resources);
+    puts("PASS: actual host/joiner Chat area results init, pre-traffic colour preview, multiple rounds/tab changes on TCP/IP and IPX, and native reset");
+}
+
+static void ResultsMapUpdateTests(BYTE* frontend, const char* path, const CM::Map& sample)
+{
+    namespace NT = NetworkTeams;
+    HMODULE resources = LoadLibraryExA(path, nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    HWND parent = CreateWindowW(L"STATIC", L"Results updates", WS_OVERLAPPEDWINDOW,
+        0, 0, 900, 500, nullptr, nullptr, nullptr, nullptr);
+    Check(resources && parent, "create actual results update fixture");
+    const auto directory = std::filesystem::absolute("Release/Data");
+    Check(!std::filesystem::exists(directory), "isolated results map update fixture");
+    std::filesystem::create_directory(directory);
+    auto bytes = sample.bytes;
+    uint32_t spawns = 0; memcpy(&spawns, bytes.data() + 20, 4);
+    const size_t foreground = 28 + spawns * 8;
+    const unsigned colors = bytes[foreground + 11] | (bytes[foreground + 12] << 8);
+    for (unsigned color = 0; color < colors; ++color)
+    {
+        const size_t offset = foreground + 13 + color * 3;
+        bytes[offset] = 25; bytes[offset + 1] = 220; bytes[offset + 2] = 35;
+    }
+    auto replacement = CM::Parse(std::move(bytes));
+    replacement.relativePath = L"Online Worms\\Results update.dat";
+    Check(CM::Publish(replacement, CM::ImportedPath(replacement.relativePath)), "install replacement map for every simulated joiner");
+    replacement = CM::LoadImported(replacement.relativePath);
+    const auto hostInit = CM::originalHostRoundInit, joinInit = CM::originalJoinRoundInit;
+    const auto roundReceive = NT::originalReceiveRoundPacket;
+    CM::originalHostRoundInit = CM::originalJoinRoundInit = reinterpret_cast<CM::NativeInit>(LocalRoundInitFixture);
+    NT::image = frontend; NT::originalReceiveRoundPacket = reinterpret_cast<NT::ReceiveRoundPacket>(CaptureDispatch);
+    CM::mapSendAttempt = CaptureMapAttempt; localRoundInitResult = 1; confirmMap = true;
+    const uint32_t peers[] = { 10, 20, 30 };
+    for (uint32_t reliable : { 0u, 1u })
+    {
+        CM::ResetNetwork(); memcpy(frontend + 0x188b14, &reliable, 4);
+        memcpy(frontend + 0x1892ac, peers, 4);
+        memset(frontend + 0x1a7698 + 0x108c, 0, 14 * 4);
+        memcpy(frontend + 0x1a7698 + 0x108c, peers, sizeof(peers));
+        CM::selected.reset(new CM::Map(sample)); CM::network.hosting = true;
+        CM::network.send = CaptureMap; CM::network.source = 10; CM::network.revision = 40;
+        HWND lobby = CreateWindowW(L"STATIC", L"Old host lobby", WS_POPUP, 0, 0, 100, 100, parent, nullptr, nullptr, nullptr);
+        std::array<BYTE, 0xac> lobbyObject{}; memcpy(lobbyObject.data() + 28, &lobby, 4);
+        CM::WatchNetworkWindow(lobbyObject.data()); CM::RememberCompletedRound(); DestroyWindow(lobby);
+        Check(!CM::network.send && !CM::network.hosting, "native host lobby destruction drops remembered send callback");
+        HWND results = CreateDialogParamW(resources, MAKEINTRESOURCEW(245), parent, DialogProc, 0);
+        std::array<BYTE, 0xac> object{}; memcpy(object.data() + 28, &results, 4);
+        mapPackets.clear(); mapTargets.clear();
+        Check(reinterpret_cast<CM::NativeInit>(frontend + 0x611a6)(object.data()) == 1, "initialize actual host results hook after old lobby closes");
+        Check(!CM::network.send && CM::network.transport == frontend + 0x176a40 && CM::network.source == 10 &&
+            CM::network.checks.size() == 1 && CM::network.outgoing.revision > 40,
+            "results initialization queues current map before any native send or Start click");
+        DrainMapTransfers();
+        CM::UseGeneratedMap();
+        Check(CM::network.checks.size() == 1, "generated map reset queues results descriptor without remembered native send");
+        DrainMapTransfers();
+        CM::selected.reset(new CM::Map(replacement)); CM::SelectionChanged();
+        Check(CM::network.checks.size() == 1, "new colour map queues results descriptor without remembered native send");
+        DrainMapTransfers();
+        Check(mapPackets.size() == 6 && mapTargets == std::vector<uint32_t>({20, 30, 20, 30, 20, 30}),
+            "results opening and two selections reach both joiners on the current connection");
+        const auto packets = mapPackets; DestroyWindow(results);
+        for (uint32_t peer : { 20u, 30u })
+        {
+            CM::ResetNetwork(); memcpy(frontend + 0x1892ac, &peer, 4);
+            HWND join = CreateDialogParamW(resources, MAKEINTRESOURCEW(246), parent, DialogProc, 0);
+            std::array<BYTE, 0xac> joinObject{}; const uint32_t host = 10;
+            memcpy(joinObject.data() + 28, &join, 4); memcpy(joinObject.data() + 0xa8, &host, 4);
+            Check(reinterpret_cast<CM::NativeInit>(frontend + 0x634c7)(joinObject.data()) == 1, "open joiner's two-tab results before fresh map traffic");
+            const size_t slot = peer == 20 ? 0 : 1;
+            for (unsigned selection = 0; selection < 3; ++selection)
+            {
+                const auto& packet = packets[slot + selection * 2];
+                NT::ReceiveNextRoundPacket(joinObject.data(), nullptr, host, packet.data(), static_cast<uint32_t>(packet.size()) + reliable * 4);
+                HWND overlay = CM::gamePreviews.front().window;
+                if (selection == 1)
+                    Check(!CM::PreviewMap() && !(GetWindowLongW(overlay, GWL_STYLE) & WS_VISIBLE), "generated descriptor immediately restores native results preview");
+                else
+                    Check(CM::PreviewMap() && CM::network.remote->bytes == (selection ? replacement.bytes : sample.bytes) &&
+                        (GetWindowLongW(overlay, GWL_STYLE) & WS_VISIBLE), "results dispatcher displays current installed map for each joiner");
+                CM::PumpNetworkQueues();
+            }
+            DestroyWindow(join);
+        }
+    }
+    CM::originalHostRoundInit = hostInit; CM::originalJoinRoundInit = joinInit; NT::originalReceiveRoundPacket = roundReceive;
+    CM::selected.reset(); CM::ResetNetwork(); DestroyWindow(parent); FreeLibrary(resources);
+    std::filesystem::remove(CM::ImportedPath(replacement.relativePath));
+    std::filesystem::remove(directory / "land.dat"); std::filesystem::remove(directory);
+    puts("PASS: host lobby destruction, automatic results announcement, generated/colour selection changes without native sends, two joiners and both transports");
+}
+
+static void JoiningRoundTransitionTests(BYTE* frontend, const char* path, const CM::Map& sample)
+{
+    HMODULE resources = LoadLibraryExA(path, nullptr, LOAD_LIBRARY_AS_DATAFILE);
+    Check(resources != nullptr, "load two-tab joining results resources");
+    HWND parent = CreateWindowW(L"STATIC", L"Joining transition fixture", WS_OVERLAPPEDWINDOW,
+        0, 0, 900, 500, nullptr, nullptr, nullptr, nullptr);
+    Check(parent != nullptr, "create joining transition parent");
+    const auto directory = std::filesystem::absolute("Release/Data");
+    Check(!std::filesystem::exists(directory), "isolated joining transition fixture");
+    std::filesystem::create_directory(directory);
+    const auto originalInit = CM::originalJoinRoundInit; const auto originalSpawn = CM::originalSpawn;
+    CM::originalJoinRoundInit = reinterpret_cast<CM::NativeInit>(LocalRoundInitFixture);
+    CM::originalSpawn = CaptureSpawn; localRoundInitResult = 1;
+    const auto originalDraw = CM::originalDrawReadonlyPreview;
+    CM::originalDrawReadonlyPreview = reinterpret_cast<CM::NativeVoid>(NativeGenerate);
+    // The previous results tests supplied a still-live remote map. Reproduce
+    // native destruction of the first lobby before opening the results page.
+    for (uint32_t reliable : { 0u, 1u })
+        for (bool closeBeforeEngine : { false, true })
+            for (unsigned resetCase = 0; resetCase < 4; ++resetCase)
+            {
+                CM::ResetNetwork(); memcpy(CM::image + 0x188b14, &reliable, 4);
+                CM::network.joining = true; CM::network.host = 10;
+                CM::network.remote.reset(new CM::Map(sample));
+                CM::network.remote->pixels.assign(1920 * 696, 1);
+                CM::network.remote->palette[1] = RGBQUAD{ 230, 20, 30, 0 };
+                CM::selected.reset(new CM::Map(sample)); // unrelated local import must never replace host preview
+                CM::selected->pixels.assign(1920 * 696, 1); CM::selected->palette[1] = RGBQUAD{ 30, 20, 230, 0 };
+                CM::network.round = { CM::MapTrailerMagic, 1, static_cast<uint32_t>(sample.bytes.size()), CM::Checksum(sample.bytes) };
+                CM::network.complete = CM::network.incoming = CM::network.round;
+                CM::network.roundMap.reset(new CM::Map(*CM::network.remote));
+                const auto identity = CM::network.round;
+                HWND lobby = CreateDialogParamW(resources, MAKEINTRESOURCEW(205), parent, DialogProc, 0);
+                Check(lobby != nullptr, "create actual initial joining lobby");
+                std::array<BYTE, 0xac> lobbyObject{}; memcpy(lobbyObject.data() + 28, &lobby, sizeof(lobby));
+                CM::WatchNetworkWindow(lobbyObject.data());
+                std::vector<BYTE> start(20); Put(start, 0, 14);
+                const BYTE* trailer = reinterpret_cast<const BYTE*>(&identity);
+                start.insert(start.end(), trailer, trailer + sizeof(identity));
+                uint32_t length = static_cast<uint32_t>(start.size());
+                Check(CM::ReceiveNetwork(10, 10, start.data(), length) && length == 20 && CM::completedRoundMap &&
+                    CM::network.leavingForMatch, "validated native start snapshots joiner's frozen map before lobby destruction");
+                if (closeBeforeEngine) DestroyWindow(lobby);
+                if (reliable)
+                {
+                    std::array<BYTE, 0x80> object{};
+                    std::array<void*, 11> vtable{}; vtable[10] = reinterpret_cast<void*>(CaptureApplication);
+                    void** com = vtable.data(); const void* comObject = &com; memcpy(object.data() + 0x78, &comObject, 4);
+                    uint32_t id = 0, connection = 17;
+                    Check(reinterpret_cast<CM::NativeRunApplication>(frontend + 0x144ed)(object.data(), &id, &connection, nullptr) == S_OK,
+                        "joining native TCP/IP engine launch proceeds across preview handoff");
+                }
+                else
+                {
+                    auto execl = reinterpret_cast<intptr_t(__cdecl*)(int, const char*, const char*, ...)>(frontend + 0x97d50);
+                    Check(execl(0, "WORMS2.EXE", "worms2.exe", nullptr) == 42,
+                        "joining native IPX engine launch proceeds across preview handoff");
+                }
+                if (!closeBeforeEngine) DestroyWindow(lobby);
+                Check(!CM::network.remote && !CM::NetworkMap() && !CM::network.joining && CM::completedRoundMap &&
+                    CM::completedRoundHost == 10 && CM::gamePreviews.empty(), "lobby destruction drops protocol state but keeps the display-only completed map");
+                HWND results = CreateDialogParamW(resources, MAKEINTRESOURCEW(246), parent, DialogProc, 0);
+                Check(results && GetDlgItem(results, 1207), "create actual two-tab joiner Chat area dialog 246");
+                std::array<BYTE, 0x100> resultsObject{}; uint32_t host = resetCase == 3 ? 11 : 10;
+                HWND nativePreview = GetDlgItem(results, 1207);
+                memcpy(resultsObject.data() + 0xac + 28, &nativePreview, sizeof(nativePreview));
+                memcpy(resultsObject.data() + 28, &results, sizeof(results)); memcpy(resultsObject.data() + 0xa8, &host, 4);
+                Check(reinterpret_cast<CM::NativeInit>(frontend + 0x634c7)(resultsObject.data()) == 1,
+                    "actual joiner results init resumes preview after old lobby destruction");
+                if (resetCase == 3)
+                    Check(!CM::completedRoundMap && !CM::PreviewMap(), "another host cannot inherit completed map preview");
+                else
+                {
+                    Check(CM::PreviewMap() == CM::completedRoundMap.get() && !CM::network.remote && !CM::NetworkMap() &&
+                        !CM::network.complete.revision && !CM::network.leavingForMatch,
+                        "two-tab results restores a preview without restoring validation or engine terrain state");
+                    HWND overlay = CM::gamePreviews.front().window;
+                    HDC dc = CreateCompatibleDC(nullptr);
+                    BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = 600;
+                    info.bmiHeader.biHeight = -300; info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32;
+                    void* pixels = nullptr; HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+                    Check(bitmap != nullptr, "create resumed joining results paint surface");
+                    HGDIOBJ previous = SelectObject(dc, bitmap); RECT bounds{}; GetClientRect(overlay, &bounds);
+                    for (unsigned tab = 0; tab < 2; ++tab)
+                    {
+                        ShowWindow(results, SW_HIDE); ShowWindow(results, SW_SHOW);
+                        // Execute the native results redraw, including its member
+                        // offset and thunk, independently of overlay WM_PAINT.
+                        const int beforeDraw = nativeCalls;
+                        reinterpret_cast<CM::NativeVoid>(frontend + 0x643aa)(resultsObject.data());
+                        Check(nativeCalls == beforeDraw,
+                            "native joiner results redraw replaces the stale thumbnail with imported terrain");
+                        SendMessageW(overlay, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT); GdiFlush();
+                        Check((GetWindowLongW(overlay, GWL_STYLE) & WS_VISIBLE) &&
+                            GetPixel(dc, bounds.right / 2, bounds.bottom / 2) == RGB(30, 20, 230),
+                            "joiner's Chat area draws last validated colour map before fresh network traffic");
+                    }
+                    std::vector<BYTE> go(8); Put(go, 0, 27); go.insert(go.end(), trailer, trailer + sizeof(identity));
+                    length = static_cast<uint32_t>(go.size());
+                    Check(!CM::ReceiveNetwork(10, 10, go.data(), length), "display snapshot cannot validate the next round's Go");
+                    CM::MapIdentity next; next.revision = 2;
+                    CM::Map changed = sample; changed.relativePath = L"Not installed.dat";
+                    if (resetCase == 1) { next.size = static_cast<uint32_t>(sample.bytes.size()); next.crc = CM::Checksum(sample.bytes); }
+                    auto packet = CM::ReferencePacket(resetCase == 1 ? &changed : nullptr, next);
+                    if (resetCase < 2)
+                    {
+                        length = static_cast<uint32_t>(packet.size());
+                        Check(!CM::ReceiveNetwork(10, 10, packet.data(), length) && !CM::completedRoundMap && !CM::PreviewMap() &&
+                            !(GetWindowLongW(overlay, GWL_STYLE) & WS_VISIBLE),
+                            "generated/missing replacement map discards completed colour preview immediately");
+                    }
+                    else
+                    {
+                        next.size = static_cast<uint32_t>(sample.bytes.size()); next.crc = CM::Checksum(sample.bytes);
+                        packet = CM::ReferencePacket(&sample, next); length = static_cast<uint32_t>(packet.size());
+                        Check(!CM::ReceiveNetwork(10, 10, packet.data(), length) && !CM::completedRoundMap &&
+                            CM::PreviewMap() == CM::network.remote.get() && CM::network.remote && CM::network.complete.revision == 2,
+                            "fresh installed map reference replaces snapshot and validates next round independently");
+                    }
+                    SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc);
+                }
+                const int beforeDraw = nativeCalls;
+                reinterpret_cast<CM::NativeVoid>(frontend + 0x643aa)(resultsObject.data());
+                Check(nativeCalls == beforeDraw + (CM::PreviewMap() ? 0 : 1),
+                    "native results redraw restores generated/missing/other-host previews and respects replacement imports");
+                // The same native renderer serves other readonly controls.
+                // An unrelated control must never inherit the session's map.
+                HWND unrelated = parent;
+                memcpy(resultsObject.data() + 0xac + 28, &unrelated, sizeof(unrelated));
+                const int beforeUnrelated = nativeCalls;
+                reinterpret_cast<CM::NativeVoid>(frontend + 0x643aa)(resultsObject.data());
+                Check(nativeCalls == beforeUnrelated + 1, "untracked readonly thumbnail retains native rendering");
+                DestroyWindow(results);
+                Check(!CM::completedRoundMap && CM::gamePreviews.empty() && !CM::network.window,
+                    "leaving results clears the cached joining preview");
+            }
+    CM::originalJoinRoundInit = originalInit; CM::originalSpawn = originalSpawn;
+    CM::originalDrawReadonlyPreview = originalDraw;
+    CM::selected.reset(); CM::ResetNetwork(); DestroyWindow(parent); FreeLibrary(resources);
+    std::filesystem::remove(directory / "land.dat"); std::filesystem::remove(directory);
+    puts("PASS: real lobby destruction before/after TCP/IP and IPX launches, two-tab joining results handoff and native direct redraw, host isolation, missing/generated replacements and independent next-round validation");
+}
+
 static void HookTests(const char* path, const CM::Map& map)
 {
     HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
@@ -1605,15 +2201,15 @@ static void HookTests(const char* path, const CM::Map& map)
     HANDLE mapping = CreateFileMappingW(file, nullptr, PAGE_READONLY | SEC_IMAGE, 0, 0, nullptr);
     BYTE* frontend = static_cast<BYTE*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
     Check(frontend != nullptr, "map frontend privately without running it");
-    const size_t sites[] = { 0x42a44, 0x7896a, 0xa349, 0x4468b, 0x46f09, 0x277c4,
-        0x3233d, 0x34294, 0x61865, 0x1e32f, 0x358a4, 0x61a81, 0x144ed, 0xa0b70, 0x336f1, 0x62214, 0x105f7, 0x1378d };
-    std::array<std::array<BYTE, 16>, 18> originals{};
+    const size_t sites[] = { 0x42a44, 0x7896a, 0x77c0e, 0xa349, 0x4468b, 0x46f09, 0x5c51d, 0x277c4,
+        0x3233d, 0x611a6, 0x634c7, 0x34294, 0x61865, 0x1e32f, 0x358a4, 0x61a81, 0x144ed, 0xa0b70, 0x336f1, 0x62214, 0x105f7, 0x1378d, 0x18841 };
+    std::array<std::array<BYTE, 16>, 23> originals{};
     for (size_t i = 0; i < originals.size(); ++i) memcpy(originals[i].data(), frontend + sites[i], 16);
     Check(MH_Initialize() == MH_OK, "initialize MinHook");
-    for (size_t site : { 0x42a44u, 0x7896au, 0xa349u, 0x4468bu, 0x46f09u, 0x277c4u,
-        0x3233du, 0x34294u, 0x61865u, 0x1e32fu, 0x358a4u, 0x61a81u, 0x144edu, 0xa0b70u, 0x336f1u, 0x62214u,
+    for (size_t site : { 0x42a44u, 0x7896au, 0x77c0eu, 0xa349u, 0x4468bu, 0x46f09u, 0x5c51du, 0x18cc4u, 0x277c4u,
+        0x3233du, 0x611a6u, 0x634c7u, 0x34294u, 0x61865u, 0x1e32fu, 0x358a4u, 0x61a81u, 0x144edu, 0xa0b70u, 0x336f1u, 0x62214u,
         0x1058bu, 0x12698u, 0x126fau, 0x1e2dcu, 0x1e2c0u, 0x1e371u, 0x3e227u, 0x97d50u, 0x97d61u,
-        0x105f7u, 0x1378du, 0x12cc9u, 0x12cb8u })
+        0x105f7u, 0x1378du, 0x12cc9u, 0x12cb8u, 0x18841u, 0x643b4u })
     {
         DWORD old = 0; VirtualProtect(frontend + site, 1, PAGE_EXECUTE_READWRITE, &old);
         const BYTE saved = frontend[site]; frontend[site] = 0x90;
@@ -1621,12 +2217,16 @@ static void HookTests(const char* path, const CM::Map& map)
         frontend[site] = saved; VirtualProtect(frontend + site, 1, old, &old);
         for (size_t i = 0; i < originals.size(); ++i) Check(!memcmp(originals[i].data(), frontend + sites[i], 16), "rejection leaves code untouched");
     }
-    Check(CM::InstallInImage(frontend), "install eighteen local/network colour-map detours");
+    Check(CM::InstallInImage(frontend), "install local/network colour-map detours");
     for (size_t i = 0; i < originals.size(); ++i) Check(memcmp(originals[i].data(), frontend + sites[i], 16), "hook enabled");
     DirectSendTests(frontend);
     ReceiveDiagnosticsTests(frontend);
     HostGoPreflightTests(frontend, map);
     EngineBarrierTests(frontend, map);
+    OfflineRoundPreviewTests(frontend, path, map);
+    NetworkRoundPreviewTests(frontend, path, map);
+    ResultsMapUpdateTests(frontend, path, map);
+    JoiningRoundTransitionTests(frontend, path, map);
     CallerTests(frontend, map);
     Check(MH_Uninitialize() == MH_OK, "remove hooks");
     for (size_t i = 0; i < originals.size(); ++i) Check(!memcmp(originals[i].data(), frontend + sites[i], 16), "native code restored");
@@ -1639,9 +2239,10 @@ int main(int argc, char** argv)
     setvbuf(stdout, nullptr, _IONBF, 0);
     try
     {
-        Check(argc == 3, "supply frontend path and map import directory");
+        Check(argc == 3 || argc == 4, "supply frontend path, map import directory and optional IPX provider path");
         Check(!CM::traceEnabled, "release logging defaults to disabled"); CM::controlSendAttempt = CaptureControlAttempt;
         LanguageTests(); ChecksumTests();
+        DirectPlayCompatFixture::Run(argc == 4 ? argv[3] : nullptr);
         INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_WIN95_CLASSES };
         InitCommonControlsEx(&controls);
         std::vector<BYTE> testImage(0x1b6000); CM::image = testImage.data();
@@ -1666,7 +2267,7 @@ int main(int argc, char** argv)
         Check(!std::filesystem::exists(importRoot), "isolated import fixture");
         std::filesystem::create_directories(importRoot / L"Online Worms");
         Check(CM::Publish(*sample, CM::ImportedPath(sample->relativePath)), "stage installed colour map");
-        ParserTests(*sample); ReferenceTests(*sample); PublishTests(*sample); EditorTests(argv[1], *sample); NativePopupLifecycleTests(); MapAlertTests(*sample); NetworkTests(*sample); PacedNetworkTests(*sample); HandshakeBackpressureTests(*sample); SharedNetworkTests(*sample); HookTests(argv[1], *sample);
+        ParserTests(*sample); ReferenceTests(*sample); PublishTests(*sample); EditorTests(argv[1], *sample); NativePopupLifecycleTests(); MapAlertTests(*sample); NetworkTests(*sample); PreviewResetNetworkTests(*sample); PacedNetworkTests(*sample); HandshakeBackpressureTests(*sample); SharedNetworkTests(*sample); JoiningPreviewTests(argv[1], *sample); HookTests(argv[1], *sample);
         std::filesystem::remove(CM::ImportedPath(sample->relativePath));
         std::filesystem::remove(importRoot / L"Online Worms"); std::filesystem::remove(importRoot); std::filesystem::remove(importRoot.parent_path());
         return 0;

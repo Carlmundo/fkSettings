@@ -44,7 +44,7 @@ namespace ExtendedOptions
     using Read = size_t (__cdecl*)(void*, size_t, size_t, void*);
     using Write = size_t (__cdecl*)(const void*, size_t, size_t, void*);
 
-    // Install after SecretWeapons, which owns the shared CRT and lobby hooks.
+    // Install after SecretWeapons (shared CRT) and FrontendNetwork (lobby hooks).
     bool Install();
     void SetLanguage(const std::string& language);
     void ReadScheme(void* buffer, size_t size, size_t count, void* stream, size_t result, Read read);

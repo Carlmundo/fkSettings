@@ -163,11 +163,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="DirectPlayCompat.h" />
     <ClInclude Include="Hooks.h" />
     <ClInclude Include="ColourMaps.h" />
     <ClInclude Include="ColourMapsStrings.h" />
     <ClInclude Include="WaterFix.h" />
     <ClInclude Include="SecretWeapons.h" />
+    <ClInclude Include="FrontendNetwork.h" />
     <ClInclude Include="SecretWeaponsStrings.h" />
     <ClInclude Include="ExtendedOptions.h" />
     <ClInclude Include="ExtendedOptionsStrings.h" />
@@ -178,8 +180,10 @@
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="Hooks.cpp" />
     <ClCompile Include="ColourMaps.cpp" />
+    <ClCompile Include="DirectPlayCompat.cpp" />
     <ClCompile Include="WaterFix.cpp" />
     <ClCompile Include="SecretWeapons.cpp" />
+    <ClCompile Include="FrontendNetwork.cpp" />
     <ClCompile Include="ExtendedOptions.cpp" />
     <ClCompile Include="NetworkTeams.cpp" />
   </ItemGroup>

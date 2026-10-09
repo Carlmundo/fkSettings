@@ -4,6 +4,8 @@
 #include <vector>
 #include "../fkSettings/NetworkTeams.cpp"
 #include "../fkSettings/SecretWeapons.cpp"
+#include "../fkSettings/FrontendNetwork.cpp"
+namespace FN = FrontendNetwork;
 
 namespace NT = NetworkTeams;
 namespace SW = SecretWeapons;
@@ -189,10 +191,10 @@ static void TeamIconTests(const char* path)
     BYTE* game = image.data() + NT::GameRva;
     SetTeam(game, 0, "Computer", 1, 2);
     NT::enabled = true;
-    SW::image = image.data();
-    SW::originalSendToPlayer = reinterpret_cast<SW::SendToPlayer>(Send);
-    SW::originalSendToAll = reinterpret_cast<SW::SendToAll>(Broadcast);
-    SW::originalReceivePacket = reinterpret_cast<SW::ReceivePacket>(ReceiveLobby);
+    FN::image = SW::image = image.data();
+    FN::originalSendToPlayer = reinterpret_cast<FN::SendToPlayer>(Send);
+    FN::originalSendToAll = reinterpret_cast<FN::SendToAll>(Broadcast);
+    FN::originalReceivePacket = reinterpret_cast<FN::ReceivePacket>(ReceiveLobby);
     std::array<BYTE, NT::NativeSnapshotPacketSize> snapshot{ 5 };
     const uint32_t snapshotSize = snapshot.size();
     memcpy(snapshot.data() + 4, &snapshotSize, sizeof(snapshotSize));
@@ -214,14 +216,14 @@ static void TeamIconTests(const char* path)
     };
     const auto deliver = [&](const std::vector<BYTE>& packet, int reliable)
     {
-        SW::ReceiveWeaponPacket(join.data(), nullptr, host, packet.data(), static_cast<uint32_t>(packet.size()) + reliable * 4);
+        FN::ReceiveLobbyPacket(join.data(), nullptr, host, packet.data(), static_cast<uint32_t>(packet.size()) + reliable * 4);
     };
     for (int reliable : { 0, 1 })
     {
         memcpy(image.data() + 0x188b14, &reliable, sizeof(reliable));
         memset(join.data() + 0x163c, 0, sizeof(host));
         SetSkill(1, 67);
-        SW::SendWeaponPacketToPlayer(nullptr, nullptr, 9, 10, snapshot.data(), snapshot.size());
+        FN::SendPacketToPlayer(nullptr, nullptr, 9, 10, snapshot.data(), snapshot.size());
         const auto lateJoin = sent;
         Check(lateJoin.size() == snapshot.size() + sizeof(NT::Extension) &&
             memcmp(lateJoin.data(), snapshot.data(), snapshot.size()) == 0, "snapshot extension preserves every native byte");
@@ -234,7 +236,7 @@ static void TeamIconTests(const char* path)
         for (int skill : { 1, 33, 34, 66, 67, 100 })
         {
             SetSkill(1, skill);
-            SW::SendWeaponPacketToAll(nullptr, nullptr, 9, add.data(), add.size());
+            FN::SendPacketToAll(nullptr, nullptr, 9, add.data(), add.size());
             const auto update = sent;
             Check(update.size() == add.size() + sizeof(NT::Extension) &&
                 memcmp(update.data(), add.data(), add.size()) == 0, "team update preserves native payload");
@@ -243,7 +245,7 @@ static void TeamIconTests(const char* path)
             deliver(update, reliable);
             Check(readIcon() == 26 + (skill > 66 ? 2 : skill > 33 ? 1 : 0), "joining CPU difficulty boundaries match bitmap 244");
             Check(rowBuilds == buildsBeforeUpdate, "CPU update refreshes an existing native row without rebuilding it");
-            SW::ReceiveWeaponPacket(join.data(), nullptr, host + 1, remove.data(), remove.size() + reliable * 4);
+            FN::ReceiveLobbyPacket(join.data(), nullptr, host + 1, remove.data(), remove.size() + reliable * 4);
             Check(NT::lobbyTeams[0].skill == skill, "non-host removal cannot withdraw CPU metadata");
             deliver(update, reliable); // Rebuild a row removed by the fake native callback.
             deliver(std::vector<BYTE>(remove.begin(), remove.end()), reliable);
@@ -262,9 +264,9 @@ static void TeamIconTests(const char* path)
         deliver(std::vector<BYTE>(snapshot.begin(), snapshot.end()), reliable);
         Check(readIcon() == 5 && NT::lobbyTeams[0].skill == 0, "legacy or new human-only lobby snapshot clears previous CPU metadata");
         SetSkill(1, 0);
-        SW::SendWeaponPacketToAll(nullptr, nullptr, 9, add.data(), add.size());
+        FN::SendPacketToAll(nullptr, nullptr, 9, add.data(), add.size());
         Check(sent == std::vector<BYTE>(add.begin(), add.end()), "human-only team packets retain native format");
-        SW::SendWeaponPacketToPlayer(nullptr, nullptr, 9, 10, snapshot.data(), snapshot.size());
+        FN::SendPacketToPlayer(nullptr, nullptr, 9, 10, snapshot.data(), snapshot.size());
         Check(sent == std::vector<BYTE>(snapshot.begin(), snapshot.end()), "human-only snapshots retain native format");
         SYSTEM_INFO info{};
         GetSystemInfo(&info);
@@ -279,14 +281,14 @@ static void TeamIconTests(const char* path)
                 BYTE* packet = guard + info.dwPageSize * 2 - size;
                 memcpy(packet, valid.data(), size);
                 const int before = received;
-                SW::ReceiveWeaponPacket(join.data(), nullptr, host, packet, static_cast<uint32_t>(size) + reliable * 4);
+                FN::ReceiveLobbyPacket(join.data(), nullptr, host, packet, static_cast<uint32_t>(size) + reliable * 4);
                 Check(received == before + (size >= nativeSize ? 1 : 0), "truncated lobby payload dropped before native handler without overread");
             }
         }
         VirtualFree(guard, 0, MEM_RELEASE);
     }
     SetSkill(1, 100);
-    SW::SendWeaponPacketToPlayer(nullptr, nullptr, 9, 10, snapshot.data(), snapshot.size());
+    FN::SendPacketToPlayer(nullptr, nullptr, 9, 10, snapshot.data(), snapshot.size());
     deliver(sent, 1);
     DestroyWindow(window);
     Check(NT::GetTeamImages(window) == nullptr && ImageList_GetImageCount(native) == 26 && !NT::joiningTree && NT::lobbyTeams[0].skill == 0,
@@ -439,12 +441,12 @@ static void ResultsIconTests(const char* path)
 static void GameAndPacketTests()
 {
     std::vector<BYTE> image(0x5b8000);
-    NT::image = SW::image = image.data();
+    NT::image = FN::image = SW::image = image.data();
     NT::enabled = true;
     NT::originalWriteGame = reinterpret_cast<NT::WriteGame>(Write);
-    SW::originalSendToAll = reinterpret_cast<SW::SendToAll>(Broadcast);
-    SW::originalSendToPlayer = reinterpret_cast<SW::SendToPlayer>(Send);
-    SW::originalReceivePacket = reinterpret_cast<SW::ReceivePacket>(Receive);
+    FN::originalSendToAll = reinterpret_cast<FN::SendToAll>(Broadcast);
+    FN::originalSendToPlayer = reinterpret_cast<FN::SendToPlayer>(Send);
+    FN::originalReceivePacket = reinterpret_cast<FN::ReceivePacket>(Receive);
     BYTE* game = image.data() + NT::GameRva;
     SetTeam(game, 0, "Human", 0, 0);
     SetSkill(0, 0);
@@ -481,11 +483,11 @@ static void GameAndPacketTests()
 
     std::array<BYTE, 20> start{ 14 };
     for (size_t i = 4; i < start.size(); ++i) start[i] = static_cast<BYTE>(i);
-    SW::SendWeaponPacketToAll(nullptr, nullptr, 9, start.data(), start.size());
+    FN::SendPacketToAll(nullptr, nullptr, 9, start.data(), start.size());
     Check(sent.size() == NT::StartPacket{}.size() && memcmp(sent.data(), start.data(), start.size()) == 0,
         "start packet extension preserves native type and GUID");
     const auto broadcast = sent;
-    SW::SendWeaponPacketToPlayer(nullptr, nullptr, 9, 10, start.data(), start.size());
+    FN::SendPacketToPlayer(nullptr, nullptr, 9, 10, start.data(), start.size());
     Check(sent == broadcast, "targeted and broadcast start messages agree");
     std::vector<BYTE> client(lobby);
     for (size_t slot = 0; slot < 6; ++slot) SetTeam(client.data(), slot,
@@ -497,7 +499,7 @@ static void GameAndPacketTests()
     {
         memcpy(image.data() + 0x188b14, &reliable, sizeof(reliable));
         NT::receivedTeams = {};
-        SW::ReceiveWeaponPacket(joinLobby.data(), nullptr, host, broadcast.data(), static_cast<uint32_t>(broadcast.size()) + reliable * 4);
+        FN::ReceiveLobbyPacket(joinLobby.data(), nullptr, host, broadcast.data(), static_cast<uint32_t>(broadcast.size()) + reliable * 4);
         Check(NT::WriteNetworkGame(client.data(), "fixture.dat", false) == 1 && serialized == hostData,
             "both transports produce identical host/client game configurations");
         auto swapped = client;
@@ -508,7 +510,7 @@ static void GameAndPacketTests()
             "AI identification survives team reorder before client serialization");
         NT::ReceiveStartPacket(999, host, start.data(), start.size());
         Check(NT::receivedTeams[1].skill == 1, "non-host packet cannot change AI state");
-        SW::ReceiveWeaponPacket(joinLobby.data(), nullptr, host, start.data(), start.size() + reliable * 4);
+        FN::ReceiveLobbyPacket(joinLobby.data(), nullptr, host, start.data(), start.size() + reliable * 4);
         NT::WriteNetworkGame(client.data(), "fixture.dat", false);
         Check(serialized[0x468 + NT::TeamStride] == 0, "native host start clears stale AI state");
 
@@ -525,7 +527,7 @@ static void GameAndPacketTests()
             if (length == 132) packet[20] = 'X';
             NT::receivedTeams[1].skill = 99;
             const int before = received;
-            SW::ReceiveWeaponPacket(joinLobby.data(), nullptr, host, packet, static_cast<uint32_t>(length) + reliable * 4);
+            FN::ReceiveLobbyPacket(joinLobby.data(), nullptr, host, packet, static_cast<uint32_t>(length) + reliable * 4);
             Check(received == before + (length >= 20 ? 1 : 0), "truncated native start dropped before native processing");
             Check(NT::receivedTeams[1].skill == 0, "short or invalid extension clears AI state without overread");
         }
@@ -543,7 +545,7 @@ static void GameAndPacketTests()
     extension.teams[2] = extension.teams[1];
     Check(!NT::ValidExtension(extension), "ambiguous duplicate AI names rejected");
     for (size_t index : { size_t(1), size_t(2), size_t(3) }) SetSkill(index, 0);
-    SW::SendWeaponPacketToAll(nullptr, nullptr, 9, start.data(), start.size());
+    FN::SendPacketToAll(nullptr, nullptr, 9, start.data(), start.size());
     Check(sent == std::vector<BYTE>(start.begin(), start.end()), "human-only game keeps native start packet");
     SetSkill(1, 101);
     SetSkill(2, -1);
@@ -567,11 +569,11 @@ static void __fastcall ReceiveRound(void*, void*, uint32_t, const void* packet, 
 static void SubsequentRoundPacketTests()
 {
     std::vector<BYTE> image(0x5b8000), client(0xcf0), results(0xac);
-    NT::image = SW::image = image.data();
+    NT::image = FN::image = SW::image = image.data();
     NT::enabled = true;
     NT::originalWriteGame = reinterpret_cast<NT::WriteGame>(Write);
     NT::originalReceiveRoundPacket = reinterpret_cast<NT::ReceiveRoundPacket>(ReceiveRound);
-    SW::originalSendToAll = reinterpret_cast<SW::SendToAll>(Broadcast);
+    FN::originalSendToAll = reinterpret_cast<FN::SendToAll>(Broadcast);
     BYTE* game = image.data() + NT::GameRva;
     SetTeam(game, 0, "Human", 0, 0);
     SetTeam(game, 1, "CPU", 1, 0);
@@ -591,7 +593,7 @@ static void SubsequentRoundPacketTests()
             const auto hostLobby = std::vector<BYTE>(game, game + 0xcf0);
             NT::WriteNetworkGame(game, "fixture.dat", true);
             const auto hostData = serialized;
-            SW::SendWeaponPacketToAll(nullptr, nullptr, 9, start.data(), start.size());
+            FN::SendPacketToAll(nullptr, nullptr, 9, start.data(), start.size());
             Check(sent.size() == NT::StartPacket{}.size(), "subsequent round sends current host CPU settings");
             NT::receivedTeams = {};
             const uint32_t length = static_cast<uint32_t>(sent.size()) + reliable * 4;
@@ -769,7 +771,7 @@ static void HookTests(const char* path)
     std::array<BYTE, 10> resultsInitBefore, resultsRefreshBefore;
     memcpy(resultsInitBefore.data(), frontend + NT::InitResultsRva, resultsInitBefore.size());
     memcpy(resultsRefreshBefore.data(), frontend + NT::RefreshResultsRva, resultsRefreshBefore.size());
-    Check(SW::InstallInImage(frontend), "shared packet hooks install");
+    Check((SW::InstallInImage(frontend) && FN::InstallInImage(frontend)), "shared packet hooks install");
     Check(NT::InstallInImage(frontend), "AI hook and host-only filter install alongside secret weapons");
     Check(frontend[0x3264b] == 1 && frontend[0x399fc] == 0, "only hosting dialog shows computer teams");
     Check(memcmp(before.data(), frontend + NT::WriteGameRva, before.size()) != 0, "game writer hook enabled");

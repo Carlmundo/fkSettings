@@ -436,15 +436,16 @@ namespace
     typedef int (__thiscall* NativeLaunch)(void*, const char*);
     typedef void (__thiscall* NativePrepareTerrain)(void*, const void*);
     NativeInit originalCreatePage = nullptr;
-    NativeInit originalCreateGameControls = nullptr;
-    NativeVoid originalPrepareLocal = nullptr, originalGenerate = nullptr;
+    NativeInit originalCreateGameControls = nullptr, originalCreateLocalRound = nullptr;
+    NativeVoid originalPrepareLocal = nullptr, originalGenerate = nullptr, originalRegeneratePreview = nullptr;
+    NativeVoid originalDrawReadonlyPreview = nullptr;
     NativePrepareTerrain originalPrepareTerrain = nullptr;
     NativeLaunch originalLaunch = nullptr;
     typedef void (__thiscall* NativeReceive)(void*, uint32_t, const void*, uint32_t);
     typedef void (__thiscall* NativeSendPlayer)(void*, uint32_t, uint32_t, const void*, uint32_t);
     NativeReceive originalHostReceive = nullptr, originalHostRoundReceive = nullptr;
     NativeSendPlayer originalSendReady = nullptr;
-    NativeInit originalHostInit = nullptr;
+    NativeInit originalHostInit = nullptr, originalHostRoundInit = nullptr, originalJoinRoundInit = nullptr;
     NativeVoid originalHostLaunch = nullptr, originalHostRoundLaunch = nullptr;
     NativeVoid originalHostGo = nullptr, originalHostRoundGo = nullptr;
     // The wrapper at 0x1e3c4 waits up to 200 ms for each recipient's ACK,
@@ -460,6 +461,7 @@ namespace
     using NativeSpawn = intptr_t (__cdecl*)(int, const char*, const char* const*, const char* const*);
     NativeSpawn originalSpawn = nullptr;
     void RefreshAll();
+    bool AttachGamePreview(HWND page, int controlId = 1262);
 
     constexpr uint32_t MapPacketType = 0x464b4d31; // FKM1, outside the native message range.
     constexpr uint32_t MapAckPacketType = 0x464b4d32;
@@ -504,6 +506,7 @@ namespace
     struct NetworkState
     {
         bool hosting = false, joining = false, generating = false, failed = false;
+        bool leavingForMatch = false, showCompletedRound = false;
         uint32_t host = 0, revision = 0;
         HWND window = nullptr;
         MapIdentity incoming{}, complete{}, round{};
@@ -543,6 +546,9 @@ namespace
         std::deque<Control> controls;
         std::vector<uint32_t> goRecipients;
     } network;
+    // Display-only snapshot: never used for publication, validation or ready ACKs.
+    std::shared_ptr<const Map> completedRoundMap;
+    uint32_t completedRoundHost = 0;
     UINT_PTR networkTimer = 0;
     UINT_PTR alertTimer = 0;
     bool displayingAlert = false;
@@ -571,12 +577,23 @@ namespace
         if (networkTimer) KillTimer(nullptr, networkTimer);
         networkTimer = 0;
     }
-    void ResetNetwork()
+    void ClearCompletedRound()
     {
+        completedRoundMap.reset(); completedRoundHost = 0;
+        network.showCompletedRound = false;
+    }
+    void ResetNetwork(bool preserveCompletedRound = false)
+    {
+        // A match handoff continues the host's reference sequence. A joiner
+        // whose old dialog survived must not reject results updates as stale.
+        const uint32_t revision = preserveCompletedRound ? network.revision : 0;
         StopNetworkTimer(); ClearMapAlerts(); network = NetworkState{};
+        network.revision = revision;
+        if (!preserveCompletedRound) ClearCompletedRound();
     }
     void CancelNetworkQueues()
     {
+        ClearCompletedRound(); network.leavingForMatch = false;
         StopNetworkTimer(); network.checks.clear(); network.controls.clear(); network.pendingGo.clear(); network.failed = true;
         network.deferredGo = nullptr; network.deferredGoObject = nullptr; network.startMap.reset(); network.preparedGo = false;
     }
@@ -752,8 +769,21 @@ namespace
         QueueMapAlert(player, reply.header.identity, reply.result,
             network.outgoingMap ? L"Levels\\Import\\" + network.outgoingMap->relativePath : std::wstring{});
     }
-    const Map* PreviewMap() { return network.joining ? network.remote.get() : selected.get(); }
+    const Map* PreviewMap()
+    {
+        if (!network.joining) return selected.get();
+        if (network.remote) return network.remote.get();
+        return network.showCompletedRound && completedRoundHost == network.host ? completedRoundMap.get() : nullptr;
+    }
     const Map* NetworkMap() { return network.round.size ? network.roundMap.get() : nullptr; }
+    void RememberCompletedRound()
+    {
+        const Map* map = network.joining ? NetworkMap() : nullptr;
+        completedRoundMap = map ? std::make_shared<Map>(*map) : nullptr;
+        completedRoundHost = map ? network.host : 0;
+        network.leavingForMatch = true;
+    }
+
 
     LRESULT CALLBACK NetworkWindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR)
     {
@@ -762,7 +792,9 @@ namespace
         if (message == WM_TIMER && wparam == 8 && network.window == window && (!network.pendingGo.empty() || !network.controls.empty())) CancelNetworkQueues();
         if (message == WM_NCDESTROY)
         {
-            if (network.window == window) { ResetNetwork(); RefreshAll(); }
+            // Native startup can destroy the lobby while its MFC controls are
+            // detaching. Do not send layout/paint messages into that teardown.
+            if (network.window == window) ResetNetwork(network.leavingForMatch);
             RemoveWindowSubclass(window, NetworkWindowProc, id);
         }
         return DefSubclassProc(window, message, wparam, lparam);
@@ -775,15 +807,18 @@ namespace
         {
             network.window = window;
             SetWindowSubclass(window, NetworkWindowProc, 0x464b4d31, 0);
+            // Lobby/results previews are separate from the Game controls page.
+            // Both results pages use 1207; only the first host lobby uses 1211.
+            AttachGamePreview(window, GetDlgItem(window, 1211) ? 1211 : 1207);
             StartAlertTimer();
         }
     }
-    void SelectNetworkHost(uint32_t host)
+    void SelectNetworkHost(uint32_t host, bool returningFromRound = false)
     {
         if (!network.joining || network.host != host)
         {
             const HWND window = network.window;
-            ResetNetwork();
+            ResetNetwork(returningFromRound && host && completedRoundHost == host);
             network.window = window;
             network.joining = true;
             network.host = host;
@@ -792,6 +827,8 @@ namespace
             Trace("NAT module loaded", GetModuleHandleW(L"fkWorm2NAT.dll") != nullptr, 0);
             RefreshAll();
         }
+        if (returningFromRound && host && completedRoundHost == host && completedRoundMap)
+            network.showCompletedRound = true;
     }
 
     std::wstring GameDirectory()
@@ -1328,8 +1365,13 @@ namespace
     {
         try
         {
-            if (network.hosting && network.send)
+            if (network.hosting)
             {
+                // Metadata uses the direct send channel, independently of the
+                // native send callback lost when the first lobby is destroyed.
+                if (!network.transport) network.transport = image + 0x176a40;
+                if (!network.source) memcpy(&network.source, image + 0x1892ac, 4);
+                if (!network.source) return;
                 if (network.deferredGo || !network.pendingGo.empty() || QueuedGo()) return; // The already queued round remains frozen.
                 network.failed = false;
                 OutgoingMap(selected.get());
@@ -1427,6 +1469,7 @@ namespace
             if (header.identity.magic != MapTrailerMagic || !header.identity.revision || header.version != MapProtocol) return false;
             if (network.incoming.revision && static_cast<int32_t>(header.identity.revision - network.incoming.revision) < 0) return false;
             if (!SameIdentity(network.incoming, header.identity)) ClearMapAlerts();
+            ClearCompletedRound();
             network.incoming = header.identity; network.complete = {}; network.remote.reset();
             network.failed = false;
             std::unique_ptr<Map> resolved;
@@ -1461,6 +1504,7 @@ namespace
             network.round = {}; network.roundMap.reset();
             if (!imported)
             {
+                ClearCompletedRound();
                 network.remote.reset(); network.incoming = {}; network.complete = {};
                 network.failed = false;
                 RefreshAll(); return true;
@@ -1476,6 +1520,8 @@ namespace
             length -= sizeof(identity);
         }
         else if (network.round.size) return false;
+        // Capture before the native start handler closes/destroys the lobby.
+        if (type == 14) RememberCompletedRound();
         return true;
     }
     void SendNetwork(void* object, uint32_t source, uint32_t target, bool broadcast,
@@ -1628,6 +1674,32 @@ namespace
         Trace("NAT module loaded", GetModuleHandleW(L"fkWorm2NAT.dll") != nullptr);
         return result;
     }
+    int __fastcall HostRoundInit(void* object, void*)
+    {
+        // Keep the previous round's selected map and handshake state. Unlike
+        // entering a new lobby, returning from a match continues this session.
+        network.hosting = true; network.joining = false; network.leavingForMatch = false;
+        const int result = originalHostRoundInit(object);
+        if (result)
+        {
+            WatchNetworkWindow(object);
+            network.transport = image + 0x176a40;
+            memcpy(&network.source, image + 0x1892ac, 4);
+            SelectionChanged(); // Announce the current map before the next Go.
+        }
+        return result;
+    }
+    int __fastcall JoinRoundInit(void* object, void*)
+    {
+        const int result = originalJoinRoundInit(object);
+        if (result)
+        {
+            SelectNetworkHost(*reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0xa8), true);
+            network.leavingForMatch = false;
+            WatchNetworkWindow(object);
+        }
+        return result;
+    }
     void HostLaunch(void* object, NativeVoid original)
     {
         WatchNetworkWindow(object);
@@ -1658,12 +1730,14 @@ namespace
             if (network.failed)
             { Trace("engine start withheld"); CancelNetworkQueues(); return false; }
         }
+        if (network.joining || network.hosting) RememberCompletedRound();
         return true;
     }
     HRESULT __fastcall RunApplication(void* object, void*, uint32_t* id, const void* connection, HANDLE event)
     {
         if (!PrepareNetworkEngine()) return E_ABORT;
         const HRESULT result = originalRunApplication(object, id, connection, event);
+        if (FAILED(result)) { ClearCompletedRound(); network.leavingForMatch = false; }
         if (NetworkMap()) Trace("engine run returned", static_cast<uint32_t>(result));
         return result;
     }
@@ -1674,6 +1748,7 @@ namespace
         const bool engine = name && !_stricmp(name, "worms2.exe");
         if (engine && !PrepareNetworkEngine()) return -1;
         const intptr_t result = originalSpawn(mode, path, arguments, environment);
+        if (engine && result == -1) { ClearCompletedRound(); network.leavingForMatch = false; }
         if (engine && NetworkMap()) Trace("engine spawn returned", static_cast<uint32_t>(result));
         return result;
     }
@@ -1704,7 +1779,7 @@ namespace
         ~Page() { if (previewFont) DeleteObject(previewFont); }
     };
     std::vector<Page*> pages;
-    struct GamePreview { HWND window; RECT bounds; LONG style, extendedStyle; };
+    struct GamePreview { HWND window; RECT bounds; LONG style, extendedStyle; HWND nativeWindow = nullptr; };
     std::vector<GamePreview> gamePreviews;
 
     RECT Units(HWND window, int x, int y, int width, int height)
@@ -1729,8 +1804,20 @@ namespace
         const int y = bounds.top + (bounds.bottom - bounds.top - height) / 2;
         return RECT{ x, y, x + width, y + height };
     }
-    void RefreshGamePreview(const GamePreview& preview)
+    void RefreshGamePreview(GamePreview preview)
     {
+        if (!IsWindow(preview.window)) return;
+        if (preview.nativeWindow)
+        {
+            // The native lobby owns this control's subclass chain and changes
+            // it during startup. Draw in our own child instead of altering it.
+            RECT bounds{};
+            if (!GetClientRect(preview.nativeWindow, &bounds)) return;
+            Position(preview.window, bounds);
+            ShowWindow(preview.window, PreviewMap() ? SW_SHOW : SW_HIDE);
+            InvalidateRect(preview.window, nullptr, TRUE);
+            return;
+        }
         SetWindowLongW(preview.window, GWL_STYLE, PreviewMap() ?
             preview.style & ~(SS_SUNKEN | WS_BORDER | WS_DLGFRAME) : preview.style);
         SetWindowLongW(preview.window, GWL_EXSTYLE, PreviewMap() ?
@@ -1914,14 +2001,35 @@ namespace
     void RefreshAll()
     {
         for (Page* page : pages) Refresh(*page);
-        for (const auto& preview : gamePreviews) RefreshGamePreview(preview);
+        // Window messages can synchronously remove previews from the live list.
+        const auto previews = gamePreviews;
+        for (const auto& preview : previews) RefreshGamePreview(preview);
     }
+
+    void UseGeneratedMap()
+    {
+        if (!selected) return;
+        selected.reset();
+        launchFailed = false;
+        RefreshAll();
+        SelectionChanged();
+    }
+    void RegeneratePreviewForCaller(void* object, const BYTE* caller)
+    {
+        // The thumbnail's native left-click handler has already confirmed a
+        // hit before it changes the terrain seed. Other callers initialize or
+        // edit native settings and must not discard an imported map.
+        if (!network.joining && caller == image + 0x18cc9) UseGeneratedMap();
+        originalRegeneratePreview(object);
+    }
+    void __fastcall RegeneratePreview(void* object, void*)
+    { RegeneratePreviewForCaller(object, static_cast<BYTE*>(_ReturnAddress())); }
 
     // The native thumbnail bitmap uses this colour for air (frontend RVA 0x84E2F).
     constexpr RGBQUAD PreviewAir = { 255, 160, 0, 0 };
     constexpr COLORREF PreviewBackground = RGB(PreviewAir.rgbRed, PreviewAir.rgbGreen, PreviewAir.rgbBlue);
 
-    void PaintPreview(HWND window, HDC dc)
+    void PaintPreview(HWND window, HDC dc, bool fit = false)
     {
         RECT rect{};
         GetClientRect(window, &rect);
@@ -1941,17 +2049,37 @@ namespace
         // Index zero is empty terrain. Override only the display palette.
         info.colors[0] = PreviewAir;
         SetStretchBltMode(dc, COLORONCOLOR);
-        StretchDIBits(dc, 0, 0, rect.right, rect.bottom,
+        const RECT picture = fit ? MapRectangle(rect) : rect;
+        StretchDIBits(dc, picture.left, picture.top, picture.right - picture.left, picture.bottom - picture.top,
             0, 0, 1920, 696, map->pixels.data(), reinterpret_cast<BITMAPINFO*>(&info), DIB_RGB_COLORS, SRCCOPY);
     }
 
-    LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR)
+    void __fastcall DrawReadonlyPreview(void* object, void*)
+    {
+        HWND window = *reinterpret_cast<HWND*>(static_cast<BYTE*>(object) + 28);
+        // Joining lobbies/results also redraw directly after replacing the native
+        // thumbnail. That GetDC path bypasses the child overlay's WM_PAINT.
+        if (window && PreviewMap() && std::any_of(gamePreviews.begin(), gamePreviews.end(),
+            [window](const GamePreview& preview) { return preview.nativeWindow == window; }))
+        {
+            HDC dc = GetDC(window);
+            if (dc)
+            {
+                PaintPreview(window, dc, true);
+                ReleaseDC(window, dc);
+                return;
+            }
+        }
+        originalDrawReadonlyPreview(object);
+    }
+
+    LRESULT CALLBACK PreviewProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR reference)
     {
         if (PreviewMap() && (message == WM_PAINT || message == WM_PRINTCLIENT))
         {
             PAINTSTRUCT paint{};
             HDC dc = message == WM_PAINT ? BeginPaint(window, &paint) : reinterpret_cast<HDC>(wparam);
-            PaintPreview(window, dc);
+            PaintPreview(window, dc, reference != 0);
             if (message == WM_PAINT) EndPaint(window, &paint);
             return 0;
         }
@@ -1965,11 +2093,24 @@ namespace
         return DefSubclassProc(window, message, wparam, lparam);
     }
 
-    bool AttachGamePreview(HWND page)
+    bool AttachGamePreview(HWND page, int controlId)
     {
-        HWND window = GetDlgItem(page, 1262);
+        HWND window = GetDlgItem(page, controlId);
         if (!window) return false;
-        for (const auto& preview : gamePreviews) if (preview.window == window) return true;
+        const bool useOverlay = controlId != 1262;
+        for (const auto& preview : gamePreviews)
+            if ((useOverlay ? preview.nativeWindow : preview.window) == window) return true;
+        if (useOverlay)
+        {
+            RECT bounds{}; GetClientRect(window, &bounds);
+            HWND overlay = CreateWindowExW(WS_EX_NOPARENTNOTIFY, L"STATIC", L"", WS_CHILD | WS_CLIPSIBLINGS,
+                0, 0, bounds.right, bounds.bottom, window, nullptr, GetModuleHandleW(nullptr), nullptr);
+            if (!overlay) return false;
+            if (!SetWindowSubclass(overlay, PreviewProc, 1, 1)) { DestroyWindow(overlay); return false; }
+            gamePreviews.push_back(GamePreview{ overlay, bounds, 0, 0, window });
+            RefreshGamePreview(gamePreviews.back());
+            return true;
+        }
         if (!SetWindowSubclass(window, PreviewProc, 1, 0)) return false;
         RECT bounds{}; GetWindowRect(window, &bounds);
         MapWindowPoints(nullptr, page, reinterpret_cast<POINT*>(&bounds), 2);
@@ -2061,13 +2202,7 @@ namespace
         if (message == WM_COMMAND && HIWORD(wparam) == BN_CLICKED && LOWORD(wparam) == ImportId) { Browse(window); return 0; }
         if (message == WM_COMMAND && HIWORD(wparam) == BN_CLICKED && (LOWORD(wparam) == GenerateId || LOWORD(wparam) == CancelId))
         {
-            if (selected)
-            {
-                selected.reset();
-                launchFailed = false;
-                RefreshAll();
-                SelectionChanged();
-            }
+            UseGeneratedMap();
             if (LOWORD(wparam) == CancelId) return 0;
             // The native Generate command now sees the restored controls and
             // creates normal terrain with no imported-map generation bypass.
@@ -2146,6 +2281,14 @@ namespace
     {
         const int result = originalCreateGameControls(object);
         if (result) AttachGamePreview(*reinterpret_cast<HWND*>(static_cast<BYTE*>(object) + 28));
+        return result;
+    }
+    int __fastcall CreateLocalRound(void* object, void*)
+    {
+        const int result = originalCreateLocalRound(object);
+        // After an offline match, the Worms2 results tab is dialog 295 and
+        // owns preview 1207 rather than the first game's Game controls 1262.
+        if (result) AttachGamePreview(*reinterpret_cast<HWND*>(static_cast<BYTE*>(object) + 28), 1207);
         return result;
     }
     void __fastcall PrepareLocal(void* object, void*)
@@ -2239,11 +2382,16 @@ namespace
             { 0x1378d, "\x55\x8b\xec\x83\xec\x08\x89\x4d\xf8", 9, reinterpret_cast<void*>(SequenceFilter), reinterpret_cast<void**>(&originalSequenceFilter) },
             { 0x42a44, "\x55\x8b\xec\x6a\xff\x68", 6, reinterpret_cast<void*>(CreatePage), reinterpret_cast<void**>(&originalCreatePage) },
             { 0x7896a, "\x55\x8b\xec\x6a\xff\x68", 6, reinterpret_cast<void*>(CreateGameControls), reinterpret_cast<void**>(&originalCreateGameControls) },
+            { 0x18841, "\x55\x8b\xec\x83\xec\x18\x89\x4d\xe8", 9, reinterpret_cast<void*>(DrawReadonlyPreview), reinterpret_cast<void**>(&originalDrawReadonlyPreview) },
+            { 0x77c0e, "\x55\x8b\xec\x51\x89\x4d\xfc", 7, reinterpret_cast<void*>(CreateLocalRound), reinterpret_cast<void**>(&originalCreateLocalRound) },
             { 0xa349, "\x55\x8b\xec\x6a\xff\x68", 6, reinterpret_cast<void*>(PrepareLocal), reinterpret_cast<void**>(&originalPrepareLocal) },
             { 0x4468b, "\x55\x8b\xec\x6a\xff\x68", 6, reinterpret_cast<void*>(PrepareTerrain), reinterpret_cast<void**>(&originalPrepareTerrain) },
+            { 0x5c51d, "\x55\x8b\xec\x51\x89\x4d\xfc", 7, reinterpret_cast<void*>(RegeneratePreview), reinterpret_cast<void**>(&originalRegeneratePreview) },
             { 0x46f09, "\x55\x8b\xec\x6a\xff\x68", 6, reinterpret_cast<void*>(Generate), reinterpret_cast<void**>(&originalGenerate) },
             { 0x277c4, "\x55\x8b\xec\x83\xec\x08\x89\x4d\xf8", 9, reinterpret_cast<void*>(LaunchGame), reinterpret_cast<void**>(&originalLaunch) },
             { 0x3233d, "\x55\x8b\xec\x6a\xff\x68\x13\x98\x4e\x00", 10, reinterpret_cast<void*>(HostInit), reinterpret_cast<void**>(&originalHostInit) },
+            { 0x611a6, "\x55\x8b\xec\x6a\xff\x68\xa3\xcc\x4e\x00", 10, reinterpret_cast<void*>(HostRoundInit), reinterpret_cast<void**>(&originalHostRoundInit) },
+            { 0x634c7, "\x55\x8b\xec\x6a\xff\x68\xd4\xce\x4e\x00", 10, reinterpret_cast<void*>(JoinRoundInit), reinterpret_cast<void**>(&originalJoinRoundInit) },
             { 0x336f1, "\x55\x8b\xec\x6a\xff\x68\x4f\x98\x4e\x00", 10, reinterpret_cast<void*>(HostGo), reinterpret_cast<void**>(&originalHostGo) },
             { 0x62214, "\x55\x8b\xec\x6a\xff\x68\x0b\xcd\x4e\x00", 10, reinterpret_cast<void*>(HostRoundGo), reinterpret_cast<void**>(&originalHostRoundGo) },
             { 0x34294, "\x55\x8b\xec\x81\xec\xc8\x00\x00\x00", 9, reinterpret_cast<void*>(HostReceive), reinterpret_cast<void**>(&originalHostReceive) },
@@ -2255,8 +2403,9 @@ namespace
             { 0xa0b70, "\x83\xec\x0c\x53\x55\x8b\x6c\x24\x1c", 9, reinterpret_cast<void*>(Spawn), reinterpret_cast<void**>(&originalSpawn) },
         };
         for (const auto& hook : hooks) if (memcmp(image + hook.rva, hook.signature, hook.length)) return false;
-        // Validate the local-only generator call and native completion byte.
-        if (memcmp(image + 0xa3cd, "\xe8\x25\x75\xff\xff", 5) ||
+        // Validate preview regeneration, local preparation and the native completion byte.
+        if (memcmp(image + 0x18cc4, "\xe8\x4b\xa6\xfe\xff", 5) ||
+            memcmp(image + 0xa3cd, "\xe8\x25\x75\xff\xff", 5) ||
             memcmp(image + 0x47301, "\xc6\x41\x38\x00", 4) ||
             memcmp(image + 0x79567, "\xe8\x0b\x86\xf8\xff", 5) ||
             memcmp(image + 0x77dff, "\xe8\x73\x9d\xf8\xff", 5) ||
@@ -2265,6 +2414,7 @@ namespace
             memcmp(image + 0x35814, "\xe8\x5e\xc3\xfc\xff", 5) ||
             memcmp(image + 0x623e3, "\xe8\x8f\xf7\xf9\xff", 5) ||
             memcmp(image + 0x3e261, "\xe8\x91\x36\xfc\xff", 5) ||
+            memcmp(image + 0x643b4, "\x81\xc1\xac\x00\x00\x00\xe8\x00\xea\xf9\xff", 11) ||
             memcmp(image + 0x64457, "\xe8\x9b\xd4\xf9\xff", 5) ||
             memcmp(image + 0x283de, "\x8b\x8c\x90\x8c\x10\x00\x00", 7) ||
             // DirectPlay Send, reliable sequence counter/envelope and channel.
@@ -2352,13 +2502,14 @@ bool ReceiveNetworkPacket(uint32_t sender, uint32_t host, const void* packet, ui
 void JoiningLobby(void* object)
 {
     if (!enabled) return;
+    ClearCompletedRound();
     SelectNetworkHost(*reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0x163c));
     WatchNetworkWindow(object);
 }
 void JoiningRound(void* object)
 {
     if (!enabled) return;
-    SelectNetworkHost(*reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0xa8));
+    SelectNetworkHost(*reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0xa8), true);
     WatchNetworkWindow(object);
 }
 }

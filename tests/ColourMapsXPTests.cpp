@@ -1,4 +1,6 @@
+#include "../fkSettings/DirectPlayCompat.cpp"
 #include "../fkSettings/ColourMaps.cpp"
+#include "DirectPlayCompatTests.h"
 
 extern "C" { extern __declspec(thread) int _Init_thread_epoch; }
 
@@ -8,6 +10,7 @@ int wmain(int argc, wchar_t** argv)
     {
         namespace CM = ColourMaps;
         if (CM::traceEnabled) throw std::runtime_error("Release logging must default to disabled");
+        DirectPlayCompatFixture::Run();
         const BYTE digits[] = { '1', '2', '3', '4', '5', '6', '7', '8', '9' };
         const int savedEpoch = _Init_thread_epoch; _Init_thread_epoch = 0;
         const uint32_t first = CM::Checksum(digits, sizeof(digits)); _Init_thread_epoch = savedEpoch;
@@ -56,6 +59,32 @@ int wmain(int argc, wchar_t** argv)
             if (packet.size() >= 1200 || CM::ResolveReference(packet.data(), static_cast<uint32_t>(packet.size()), reference, resolved) != CM::MapResult::Ready ||
                 !resolved || resolved->bytes != map.bytes) throw std::runtime_error("XP installed map validation/publication");
             printf("PASS: XP toolset validates Birthday from its installed path using %u metadata bytes\n", static_cast<unsigned>(packet.size()));
+            const HWND lobby = CreateWindowExW(0, L"STATIC", L"XP preview fixture", WS_POPUP,
+                0, 0, 300, 150, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+            const HWND nativePreview = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_GRAYFRAME,
+                10, 10, 200, 80, lobby, reinterpret_cast<HMENU>(1207), GetModuleHandleW(nullptr), nullptr);
+            const LONG_PTR nativeProcedure = GetWindowLongPtrW(nativePreview, GWLP_WNDPROC);
+            CM::network.joining = true; CM::network.remote = std::move(resolved);
+            CM::network.remote->pixels.assign(1920 * 696, 1);
+            if (!lobby || !nativePreview || !CM::AttachGamePreview(lobby, 1207) || CM::gamePreviews.size() != 1 ||
+                CM::gamePreviews.front().nativeWindow != nativePreview || GetWindowLongPtrW(nativePreview, GWLP_WNDPROC) != nativeProcedure)
+                throw std::runtime_error("XP preview overlay preserves native control procedure");
+            SetWindowLongPtrW(nativePreview, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(DefWindowProcW));
+            CM::RefreshAll();
+            HDC dc = CreateCompatibleDC(nullptr);
+            BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER); info.bmiHeader.biWidth = 200;
+            info.bmiHeader.biHeight = -80; info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32;
+            void* pixels = nullptr; HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+            HGDIOBJ previous = SelectObject(dc, bitmap);
+            SendMessageW(CM::gamePreviews.front().window, WM_PRINTCLIENT, reinterpret_cast<WPARAM>(dc), PRF_CLIENT);
+            const auto color = CM::network.remote->palette[1];
+            if (GetPixel(dc, 100, 40) != RGB(color.rgbRed, color.rgbGreen, color.rgbBlue) ||
+                GetWindowLongPtrW(nativePreview, GWLP_WNDPROC) != reinterpret_cast<LONG_PTR>(DefWindowProcW))
+                throw std::runtime_error("XP overlay paints after native preview detachment");
+            SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc);
+            SetWindowLongPtrW(nativePreview, GWLP_WNDPROC, nativeProcedure); DestroyWindow(lobby); CM::ResetNetwork();
+            if (!CM::gamePreviews.empty()) throw std::runtime_error("XP overlay cleanup");
+            puts("PASS: XP toolset overlay paints after native preview detachment without altering its procedure");
             DeleteFileW(local.c_str()); DeleteFileW((data + L"\\land.dat").c_str());
             RemoveDirectoryW(root.c_str()); RemoveDirectoryW(levels.c_str()); RemoveDirectoryW(data.c_str());
         }
