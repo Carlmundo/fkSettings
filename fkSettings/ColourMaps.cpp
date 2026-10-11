@@ -2293,6 +2293,9 @@ namespace
     }
     void __fastcall PrepareLocal(void* object, void*)
     {
+        // Quick Play always starts with native terrain, including when an
+        // imported map was left selected in a previous game setup.
+        UseGeneratedMap();
         preparingLocal = true;
         launchFailed = false;
         originalPrepareLocal(object);
@@ -2343,8 +2346,7 @@ namespace
     { GenerateForCaller(object, static_cast<BYTE*>(_ReturnAddress())); }
     bool LocalLaunchCaller(const BYTE* caller)
     {
-        return caller == image + 0x79591 || caller == image + 0x77e4b ||
-            caller == image + 0x9d58 || caller == image + 0xa074 || caller == image + 0xa64d;
+        return caller == image + 0x79591 || caller == image + 0x77e4b;
     }
     int LaunchForCaller(void* object, const char* command, const BYTE* caller)
     {

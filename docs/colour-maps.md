@@ -227,7 +227,9 @@ initialization issue. Older DLLs cannot confirm protocol 10; update all players.
 Selection validates the entire file before changing the active map. It publishes
 the original bytes to `Data/land.dat`, then republishes them before each local
 launch in place of running `landgen`. Normal Game controls Go, subsequent local
-rounds and quick-game preparation all use the selected bytes. A final publication
+rounds use the selected bytes. Quick Play (Player vs CPU or Player vs Player)
+clears the imported selection and runs native terrain generation to replace
+`Data/land.dat` before launch. A final publication
 immediately before the local engine launcher runs prevents an intervening native
 write from restoring the previous generated map. Online preparation and launch
 use the confirmed host map. Missions keep native terrain behavior.
@@ -268,7 +270,7 @@ or engine code is patched.
 | --- | --- |
 | `0x42A44` | Select Level initialization; attach after native layout and preserve its return value |
 | `0x7896A` | Game controls initialization; subclass its terrain preview control 1262 |
-| `0xA349` | Quick-game terrain preparation; scope the import to local generation |
+| `0xA349` | Quick-game terrain preparation; clear the import before native generation |
 | `0x4468B` | Shared terrain preparation; classify normal Go/next-round callers as local |
 | `0x46F09` | Terrain generator; publish imported bytes during local preparation |
 | `0x277C4` | Engine launcher; republish for local game callers and prevent launch after failed publication |

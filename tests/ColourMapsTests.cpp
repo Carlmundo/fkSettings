@@ -692,6 +692,77 @@ static void CallerTests(BYTE* frontend, const CM::Map& map)
     puts("PASS: actual preview seed-change, normal Go and next-round CALLs preserve the selected generated/imported terrain through engine launch");
 }
 
+static CM::NativeVoid quickGenerateCall = nullptr;
+static void __fastcall NativeQuickPrepare(void* object, void*)
+{
+    Check(!CM::selected && !CM::launchFailed, "Quick Play clears the import and stale error before native preparation");
+    quickGenerateCall(object);
+}
+static void QuickPlayTests(BYTE* frontend, const CM::Map& sample)
+{
+    const auto directory = std::filesystem::absolute("Release/Data");
+    Check(!std::filesystem::exists(directory), "isolated Quick Play terrain fixture");
+    std::filesystem::create_directory(directory);
+    const auto destination = (directory / "land.dat").wstring();
+    const auto originalPrepare = CM::originalPrepareLocal;
+    const auto originalGenerate = CM::originalGenerate;
+    const auto originalLaunch = CM::originalLaunch;
+    CM::originalPrepareLocal = reinterpret_cast<CM::NativeVoid>(NativeQuickPrepare);
+    CM::originalGenerate = reinterpret_cast<CM::NativeVoid>(NativeGenerate);
+    CM::originalLaunch = reinterpret_cast<CM::NativeLaunch>(NativeLaunch);
+    std::array<BYTE, 0x44> terrain{};
+    // Execute the real preparation/launch CALLs for both Quick Play buttons
+    // and the automatic quick-game path, retaining their native return PCs.
+    auto runCall = [&](size_t call, bool argument) {
+        BYTE* entry = frontend + call - 7;
+        std::array<BYTE, 13> saved{}; memcpy(saved.data(), entry, saved.size());
+        DWORD old = 0;
+        Check(VirtualProtect(entry, saved.size(), PAGE_EXECUTE_READWRITE, &old) != FALSE, "protect native Quick Play caller fixture");
+        entry[0] = argument ? 0x6a : 0x90; entry[1] = argument ? 0 : 0x90; entry[2] = 0xb9;
+        const uint32_t address = reinterpret_cast<uint32_t>(terrain.data()); memcpy(entry + 3, &address, 4);
+        entry[12] = 0xc3; FlushInstructionCache(GetCurrentProcess(), entry, saved.size());
+        reinterpret_cast<void(__cdecl*)()>(entry)();
+        memcpy(entry, saved.data(), saved.size()); FlushInstructionCache(GetCurrentProcess(), entry, saved.size());
+        VirtualProtect(entry, saved.size(), old, &old);
+    };
+    // The original helper ultimately calls the hooked generator at this site.
+    BYTE* generateEntry = frontend + 0xa3cd - 5;
+    std::array<BYTE, 11> savedGenerate{}; memcpy(savedGenerate.data(), generateEntry, savedGenerate.size());
+    DWORD oldGenerate = 0;
+    Check(VirtualProtect(generateEntry, savedGenerate.size(), PAGE_EXECUTE_READWRITE, &oldGenerate) != FALSE, "protect native Quick Play generator CALL");
+    generateEntry[0] = 0xb9; const uint32_t address = reinterpret_cast<uint32_t>(terrain.data());
+    memcpy(generateEntry + 1, &address, 4); generateEntry[10] = 0xc3;
+    FlushInstructionCache(GetCurrentProcess(), generateEntry, savedGenerate.size());
+    quickGenerateCall = reinterpret_cast<CM::NativeVoid>(generateEntry);
+    for (const auto calls : { std::pair<size_t, size_t>{0x9d2c, 0x9d53}, {0xa048, 0xa06f}, {0xa624, 0xa648} })
+        for (bool imported : { true, false })
+        {
+            CM::ResetNetwork(); CM::selected.reset(imported ? new CM::Map(sample) : nullptr);
+            CM::launchFailed = true;
+            Check(CM::Publish(sample, destination), "stage previous imported land.dat before Quick Play");
+            auto generated = sample; Put(generated.bytes, 16, !sample.cavern);
+            nativeGeneratedMap = &generated;
+            const int before = nativeCalls;
+            runCall(calls.first, false);
+            nativeGeneratedMap = nullptr;
+            Check(!CM::selected && !CM::preparingLocal && !CM::launchFailed && nativeCalls == before + 1 &&
+                CM::Load(destination.c_str()).bytes == generated.bytes,
+                "Quick Play invokes native generation and replaces previous colour terrain before engine launch");
+            Check(!CM::LocalLaunchCaller(frontend + calls.second + 5), "Quick Play launcher cannot republish an imported selection");
+            launchExpectedMap = &generated; runCall(calls.second, true); launchExpectedMap = nullptr;
+            Check(nativeCalls == before + 2 && CM::Load(destination.c_str()).bytes == generated.bytes,
+                "Quick Play engine receives freshly generated land.dat with or without a prior import");
+        }
+    quickGenerateCall = nullptr;
+    memcpy(generateEntry, savedGenerate.data(), savedGenerate.size());
+    FlushInstructionCache(GetCurrentProcess(), generateEntry, savedGenerate.size());
+    VirtualProtect(generateEntry, savedGenerate.size(), oldGenerate, &oldGenerate);
+    CM::originalPrepareLocal = originalPrepare; CM::originalGenerate = originalGenerate; CM::originalLaunch = originalLaunch;
+    CM::selected.reset(); CM::ResetNetwork();
+    std::filesystem::remove(directory / "land.dat"); std::filesystem::remove(directory);
+    puts("PASS: real Player vs CPU/Player vs Player/automatic Quick Play CALLs reset imported selection and use fresh native terrain through engine launch");
+}
+
 static std::vector<std::vector<BYTE>> mapPackets;
 static std::vector<uint32_t> mapTargets;
 static std::vector<BYTE> readyPacket;
@@ -2194,7 +2265,7 @@ static void JoiningRoundTransitionTests(BYTE* frontend, const char* path, const 
     puts("PASS: real lobby destruction before/after TCP/IP and IPX launches, two-tab joining results handoff and native direct redraw, host isolation, missing/generated replacements and independent next-round validation");
 }
 
-static void HookTests(const char* path, const CM::Map& map)
+static void HookTests(const char* path, const CM::Map& map, bool quickPlayOnly = false)
 {
     HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     Check(file != INVALID_HANDLE_VALUE, "open frontend");
@@ -2219,15 +2290,24 @@ static void HookTests(const char* path, const CM::Map& map)
     }
     Check(CM::InstallInImage(frontend), "install local/network colour-map detours");
     for (size_t i = 0; i < originals.size(); ++i) Check(memcmp(originals[i].data(), frontend + sites[i], 16), "hook enabled");
-    DirectSendTests(frontend);
-    ReceiveDiagnosticsTests(frontend);
-    HostGoPreflightTests(frontend, map);
-    EngineBarrierTests(frontend, map);
-    OfflineRoundPreviewTests(frontend, path, map);
-    NetworkRoundPreviewTests(frontend, path, map);
-    ResultsMapUpdateTests(frontend, path, map);
-    JoiningRoundTransitionTests(frontend, path, map);
-    CallerTests(frontend, map);
+    if (quickPlayOnly)
+    {
+        CallerTests(frontend, map);
+        QuickPlayTests(frontend, map);
+    }
+    else
+    {
+        DirectSendTests(frontend);
+        ReceiveDiagnosticsTests(frontend);
+        HostGoPreflightTests(frontend, map);
+        EngineBarrierTests(frontend, map);
+        OfflineRoundPreviewTests(frontend, path, map);
+        NetworkRoundPreviewTests(frontend, path, map);
+        ResultsMapUpdateTests(frontend, path, map);
+        JoiningRoundTransitionTests(frontend, path, map);
+        CallerTests(frontend, map);
+        QuickPlayTests(frontend, map);
+    }
     Check(MH_Uninitialize() == MH_OK, "remove hooks");
     for (size_t i = 0; i < originals.size(); ++i) Check(!memcmp(originals[i].data(), frontend + sites[i], 16), "native code restored");
     UnmapViewOfFile(frontend); CloseHandle(mapping); CloseHandle(file);
@@ -2241,8 +2321,12 @@ int main(int argc, char** argv)
     {
         Check(argc == 3 || argc == 4, "supply frontend path, map import directory and optional IPX provider path");
         Check(!CM::traceEnabled, "release logging defaults to disabled"); CM::controlSendAttempt = CaptureControlAttempt;
-        LanguageTests(); ChecksumTests();
-        DirectPlayCompatFixture::Run(argc == 4 ? argv[3] : nullptr);
+        const bool quickPlayOnly = argc == 4 && !strcmp(argv[3], "--quick-play-only");
+        if (!quickPlayOnly)
+        {
+            LanguageTests(); ChecksumTests();
+            DirectPlayCompatFixture::Run(argc == 4 ? argv[3] : nullptr);
+        }
         INITCOMMONCONTROLSEX controls{ sizeof(controls), ICC_WIN95_CLASSES };
         InitCommonControlsEx(&controls);
         std::vector<BYTE> testImage(0x1b6000); CM::image = testImage.data();
@@ -2263,6 +2347,7 @@ int main(int argc, char** argv)
         }
         Check(sample != nullptr, "found sample terrain");
         printf("PASS: all %u supplied terrain files load with their palettes and object locations\n", count);
+        if (quickPlayOnly) { HookTests(argv[1], *sample, true); return 0; }
         const auto importRoot = std::filesystem::path(CM::ImportRoot());
         Check(!std::filesystem::exists(importRoot), "isolated import fixture");
         std::filesystem::create_directories(importRoot / L"Online Worms");
