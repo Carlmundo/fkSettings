@@ -29,6 +29,51 @@ namespace
     ResolveExport originalResolveExport = nullptr;
     PVOID volatile originalProviderInit = nullptr;
 
+#ifdef _M_IX86
+    constexpr size_t XpSendGuardRva = 0x28f09;
+    BYTE* xpSendContinue = nullptr;
+    BYTE* xpSendUnavailable = nullptr;
+
+    __declspec(naked) void GuardXpProviderSend()
+    {
+        __asm
+        {
+            // XP's send helper holds its native lock here. If a late send
+            // finds no provider table, take its existing failure branch.
+            mov eax, [esi+14h]
+            test eax, eax
+            jz unavailable
+            cmp dword ptr [eax+50h], 0
+            jmp dword ptr [xpSendContinue]
+        unavailable:
+            // Use the native missing-SendEx path, including its lock release
+            // and HRESULT. Do not report a discarded packet as successful.
+            jmp dword ptr [xpSendUnavailable]
+        }
+    }
+
+    bool InstallXpSendGuard(BYTE* module)
+    {
+        if (!module) return true; // The frontend normally imports dplayx.dll.
+        const auto dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(module);
+        if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 || dos->e_lfanew > 0x1000) return true;
+        const auto nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(module + dos->e_lfanew);
+        // This internal layout is specific to XP SP3's 5.3.2600.5512 build.
+        // Other DirectPlay versions retain their original implementation.
+        if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.Machine != IMAGE_FILE_MACHINE_I386 ||
+            nt->FileHeader.TimeDateStamp != 0x4802a0e1 || nt->OptionalHeader.SizeOfImage != 0x3b000) return true;
+        if (memcmp(module + XpSendGuardRva, "\x8b\x46\x14\x83\x78\x50\x00\x74\x39", 9) ||
+            memcmp(module + 0x28f4b, "\xbe\xfa\x00\x77\x88\xeb\xe9", 7)) return false;
+        xpSendContinue = module + 0x28f10;
+        xpSendUnavailable = module + 0x28f4b;
+        void* target = module + XpSendGuardRva;
+        if (MH_CreateHook(target, reinterpret_cast<void*>(GuardXpProviderSend), nullptr) != MH_OK) return false;
+        if (MH_EnableHook(target) == MH_OK) return true;
+        MH_RemoveHook(target);
+        return false;
+    }
+#endif
+
     HRESULT WINAPI DeletePlayerWithoutResources(DeletePlayerData*)
     {
         // This provider has no DeletePlayer implementation or per-player
@@ -80,7 +125,14 @@ bool Install()
     void* target = nullptr;
     if (MH_CreateHookApiEx(L"kernel32", "GetProcAddress", reinterpret_cast<void*>(GetProviderExport),
         reinterpret_cast<void**>(&originalResolveExport), &target) != MH_OK) return false;
-    if (MH_EnableHook(target) == MH_OK) return true;
+    if (MH_EnableHook(target) == MH_OK)
+    {
+        // Keep the existing IPX callback fix even if a modified XP DLL cannot
+        // accept the separate shutdown guard.
+        if (!InstallXpSendGuard(reinterpret_cast<BYTE*>(GetModuleHandleW(L"dplayx.dll"))))
+            OutputDebugStringA("fkSettings: XP DirectPlay send shutdown guard is unavailable.\n");
+        return true;
+    }
     MH_RemoveHook(target);
 #endif
     return false;

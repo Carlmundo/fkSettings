@@ -34,6 +34,7 @@ extern "C" { int __afxForceUSRDLL; }
 #include "SecretWeapons.h"
 #include "FrontendNetwork.h"
 #include "NetworkTeams.h"
+#include "GameSetup.h"
 #include "ExtendedOptions.h"
 #include "ColourMaps.h"
 #include "WaterFix.h"
@@ -857,6 +858,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 
         if (!WaterFix::Install())
             OutputDebugStringA("fkSettings: water colour preview fix is unavailable.\n");
+
+        if (!GameSetup::Install())
+            OutputDebugStringA("fkSettings: 48-worm game setup is unavailable.\n");
 
         const bool weaponHooks = SecretWeapons::Install();
         const bool lobbyNetworkHooks = weaponHooks && FrontendNetwork::Install();

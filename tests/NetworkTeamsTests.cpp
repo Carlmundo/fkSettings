@@ -459,6 +459,19 @@ static void GameAndPacketTests()
     SetTeam(game, 4, "Remote", -1, 1);
     SetTeam(game, 5, "Other Human", 4, 2);
     SetSkill(4, 0);
+    game[0x483] = 6;
+    for (int slot = 0; slot < 6; ++slot)
+    {
+        BYTE* team = game + NT::TeamOffset + slot * NT::TeamStride;
+        team[0x106] = 8;
+        for (int worm = 0; worm < 8; ++worm)
+        {
+            BYTE* record = team + 0x66 + worm * 20;
+            const unsigned short health = static_cast<unsigned short>(100 + slot * 8 + worm);
+            memcpy(record, &health, sizeof(health));
+            sprintf_s(reinterpret_cast<char*>(record + 2), 18, "T%d Worm %d", slot + 1, worm + 1);
+        }
+    }
     const std::vector<BYTE> lobby(game, game + 0xcf0);
     Check(NT::WriteNetworkGame(game, "fixture.dat", true) == 1, "host write result");
     const auto hostData = serialized;
@@ -471,6 +484,9 @@ static void GameAndPacketTests()
         expected[NT::TeamOffset + slot * NT::TeamStride] = static_cast<BYTE>(controllers[slot]);
     Check(memcmp(serialized.data(), expected.data() + 0x1c, serialized.size()) == 0,
         "only controller bytes change in native game.dat payload");
+    Check(serialized.size() == 0xcd4 && serialized[0x467] == 6 &&
+        serialized[0x468 + 5 * NT::TeamStride + 0x106] == 8,
+        "network game.dat retains all six teams of eight worms");
     Check(memcmp(game, lobby.data(), lobby.size()) == 0, "host lobby ownership restored");
     writeResult = 0;
     Check(NT::WriteNetworkGame(game, "fixture.dat", true) == 0 && memcmp(game, lobby.data(), lobby.size()) == 0,

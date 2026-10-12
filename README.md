@@ -15,6 +15,11 @@ Network hosts can also add saved **computer-controlled teams**, retaining their
 AI difficulty. All players need the updated `fkSettings.dll` for these matches.
 See [network team implementation and verification](docs/network-teams.md).
 
+Game setup supports **48 worms: six teams of eight**, in local and network games.
+The full roster fits in the native `Data/game.dat`; no `teams.dat` is required.
+In-game support is provided separately by `wkEnchancedOptions`.
+See [setup limits and verification](docs/game-setup.md).
+
 Game options (dialog 154) now includes **Extended Options** with 24 checkboxes
 and three numeric trackbars. Values persist in an appended `.opt` extension, transfer with the
 host's online options, and are written to `Data/extended.dat` for an engine

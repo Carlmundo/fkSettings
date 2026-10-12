@@ -1,5 +1,9 @@
 Test all of the following with a modern OS and Windows XP.
 
+- [ ] 48-worm setup — local: Add six teams, select eight worms each, remove and re-add teams, and confirm eight remains selectable. Also try smaller counts. A seventh team and a ninth worm must remain unavailable.
+- [ ] 48-worm setup — launch: With the engine extension installed, start six teams of eight. Confirm all 48 names and health values load from `Data\game.dat` (still `0xCD4` bytes), and repeat for the next round.
+- [ ] 48-worm setup — online: Repeat on TCP/IP and IPX with the updated DLL on every computer, using human and CPU teams. Check late joins, remove/re-add teams, and subsequent rounds; all computers should write the same full roster.
+
 - [ ] Main Menu: Confirm the Exit button is correctly positioned, fully visible, and clickable at high DPI.
 - [ ] Video Options: Confirm the Advanced Options button appears when settings.exe is present, scales correctly, and launches it when clicked.
 - [ ] Music Options: Confirm track names and list rows remain readable, correctly spaced, and selectable at high DPI.
@@ -22,6 +26,7 @@ Test all of the following with a modern OS and Windows XP.
 - [ ] CPU teams — Internet: Complete a game containing both human and CPU teams.
 - [ ] End Game Statistics: Confirm text, columns, and buttons are correctly spaced at high DPI, with no clipping or overlap.
 - [ ] IPX provider compatibility: Check that a 3 player game can initialise with a colour map.
+- [ ] XP IPX joiner — engine launch: With XP SP3 `dplayx.dll` 5.3.2600.5512, join a modern host and start a generated-map game, then an imported-map game. Confirm the frontend survives launch and returns after the engine exits. Repeat for a subsequent round, disconnect/rejoin, small rosters and 48 worms. Check XP hosting and TCP/IP joining too. If a crash remains, record the module offset, exception code and faulting read address/registers (the reported `0x28F0C` alone does not establish that the provider table was null).
 - [ ] Colour maps: Import, select a .dat in a subfolder and confirm it loads. Try another folder outisde the permitted area.
 - [ ] Colour-map language: Set language.txt to a non english code then use Import to choose a .dat outside Levels\Import.
 - [ ] Colour maps: Online - Load map, change water colour and Open to Cavern (or vice versa).

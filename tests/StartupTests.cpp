@@ -5,6 +5,7 @@
 #include "../fkSettings/ColourMaps.cpp"
 #include "../fkSettings/ExtendedOptions.cpp"
 #include "../fkSettings/NetworkTeams.cpp"
+#include "../fkSettings/GameSetup.cpp"
 #include "../fkSettings/WeaponTabOrder.h"
 #include <algorithm>
 #include <cstdio>
@@ -77,6 +78,7 @@ int main(int argc, char** argv)
             Check(FrontendNetwork::InstallInImage(image), "install shared frontend packet hooks");
             Check(ExtendedOptions::InstallInImage(image), "install extended option hooks");
             Check(NetworkTeams::InstallInImage(image), "install network team hooks");
+            Check(GameSetup::InstallInImage(image), "install 48-worm setup limits alongside other hooks");
             QueryPerformanceCounter(&beforeColourMaps);
             Check(ColourMaps::InstallInImage(image), "install colour map hooks");
             QueryPerformanceCounter(&afterHooks);
