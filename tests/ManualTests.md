@@ -1,5 +1,7 @@
 Test all of the following with a modern OS and Windows XP.
 
+- [ ] Frontend return after Alt+Tab: Start Quick Play and a normal local match, Alt+Tab to the frontend while the engine is running, return to the engine, then finish/exit the match. Confirm the frontend comes back and accepts input. Repeat for a second round, TCP/IP and IPX; also check normal completion without switching apps and launch failure.
+
 - [ ] 48-worm setup — local: Add six teams, select eight worms each, remove and re-add teams, and confirm eight remains selectable. Also try smaller counts. A seventh team and a ninth worm must remain unavailable.
 - [ ] 48-worm setup — launch: With the engine extension installed, start six teams of eight. Confirm all 48 names and health values load from `Data\game.dat` (still `0xCD4` bytes), and repeat for the next round.
 - [ ] 48-worm setup — online: Repeat on TCP/IP and IPX with the updated DLL on every computer, using human and CPU teams. Check late joins, remove/re-add teams, and subsequent rounds; all computers should write the same full roster.

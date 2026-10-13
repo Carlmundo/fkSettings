@@ -29,6 +29,7 @@
       <Filter>Headers</Filter>
     </ClInclude>
     <ClInclude Include="FrontendNetwork.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="FrontendFocus.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="ColourMaps.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="ColourMapsStrings.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="SecretWeaponsStrings.h">
@@ -53,6 +54,7 @@
       <Filter>Code</Filter>
     </ClCompile>
     <ClCompile Include="FrontendNetwork.cpp"><Filter>Code</Filter></ClCompile>
+    <ClCompile Include="FrontendFocus.cpp"><Filter>Code</Filter></ClCompile>
     <ClCompile Include="ColourMaps.cpp"><Filter>Code</Filter></ClCompile>
     <ClCompile Include="dllmain.cpp">
       <Filter>Code</Filter>

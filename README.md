@@ -34,3 +34,7 @@ See [usage and verification](docs/colour-maps.md).
 
 Startup hooks are activated in batches to avoid repeated thread suspension.
 See [startup timing and verification](docs/startup-performance.md).
+
+The frontend services synchronous activation messages while waiting for a
+match to finish and restores its window afterward, including after an
+Alt+Tab attempt during play. See [focus restoration and verification](docs/frontend-focus.md).

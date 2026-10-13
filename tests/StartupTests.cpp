@@ -7,6 +7,7 @@
 #include "../fkSettings/NetworkTeams.cpp"
 #include "../fkSettings/GameSetup.cpp"
 #include "../fkSettings/WeaponTabOrder.h"
+#include "../fkSettings/FrontendFocus.cpp"
 #include <algorithm>
 #include <cstdio>
 #include <stdexcept>
@@ -43,6 +44,9 @@ int main(int argc, char** argv)
             BYTE* image = static_cast<BYTE*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
             Check(image != nullptr, "view frontend");
             const HMODULE module = reinterpret_cast<HMODULE>(image);
+            std::array<BYTE, 16> originalFocusMinimize{}, originalFocusRestore{};
+            memcpy(originalFocusMinimize.data(), image + 0x25b80, originalFocusMinimize.size());
+            memcpy(originalFocusRestore.data(), image + 0x25ba6, originalFocusRestore.size());
             // SEC_IMAGE leaves these absolute operands at their preferred base.
             // Match the operands the loader supplies in a relocated frontend.
             const size_t defaults[] = { 0x9cdc, 0x9ff8, 0xa5d4, 0x31cd9, 0x392c0, 0x586a3, 0x5899e, 0x59611, 0x59e3d };
@@ -74,6 +78,8 @@ int main(int argc, char** argv)
             Check(WaterFix::InstallInImage(module), "water signatures and jump");
             QueryPerformanceCounter(&afterScans);
             Check(MH_Initialize() == MH_OK, "initialize MinHook");
+            Check(FrontendFocus::InstallInImage(image), "install frontend focus hooks");
+            Check(image[0x25b80] == 0xe9 && image[0x25ba6] == 0xe9, "activate focus lifecycle hooks");
             Check(SecretWeapons::InstallInImage(image), "install secret weapon hooks");
             Check(FrontendNetwork::InstallInImage(image), "install shared frontend packet hooks");
             Check(ExtendedOptions::InstallInImage(image), "install extended option hooks");
@@ -88,6 +94,8 @@ int main(int argc, char** argv)
             for (const auto site : colourMapSites)
                 Check(image[site] == 0xe9, "all colour map hooks activated");
             Check(MH_Uninitialize() == MH_OK, "remove test hooks");
+            Check(!memcmp(image + 0x25b80, originalFocusMinimize.data(), originalFocusMinimize.size()) &&
+                !memcmp(image + 0x25ba6, originalFocusRestore.data(), originalFocusRestore.size()), "restore focus lifecycle code");
             Check(image[0x975b0] == 0x56 && image[0x97780] == 0x8b && image[NetworkTeams::WriteGameRva] == 0x55,
                 "all feature groups restored");
             for (size_t i = 0; i < originalColourMaps.size(); ++i)

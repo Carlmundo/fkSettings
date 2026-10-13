@@ -39,6 +39,7 @@ extern "C" { int __afxForceUSRDLL; }
 #include "ColourMaps.h"
 #include "WaterFix.h"
 #include "WeaponTabOrder.h"
+#include "FrontendFocus.h"
 
 #include <sstream>
 #include <fstream>
@@ -829,6 +830,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 
         if (!DirectPlayCompat::Install())
             OutputDebugStringA("fkSettings: IPX provider compatibility fix is unavailable.\n");
+
+        if (!FrontendFocus::Install())
+            OutputDebugStringA("fkSettings: frontend focus restoration fix is unavailable.\n");
 
         DWORD CFormViewSetWindowPos4Addr = Hooks::scanPattern2("CFormViewSetWindowPos4", "E8 55 4E 09 00 8B 45 F0 83 C0");
         DWORD CFormViewSetWindowPos5Addr = Hooks::scanPattern2("CFormViewSetWindowPos5", "E8 06 4E 09 00 8D 4D A4 E8 13 3C");
