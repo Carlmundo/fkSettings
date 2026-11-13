@@ -43,9 +43,9 @@ writer already saves the entire payload, so both first games and subsequent
 rounds keep the native serialization path. Network AI handling continues to
 change only controller bytes during serialization and restores lobby ownership.
 
-The requested overflow condition does not occur: there is enough room in
-`game.dat`, so `Data\teams.dat` is not created and no new engine-side file reader
-is required.
+There is enough room in `game.dat`, so the 48-worm setup does not need an
+overflow file. The separate [offline alliances feature](offline-alliances.md)
+writes `Data\teams.dat` with alliance assignments, independently of worm counts.
 
 ## Verification
 

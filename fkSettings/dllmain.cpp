@@ -35,6 +35,7 @@ extern "C" { int __afxForceUSRDLL; }
 #include "FrontendNetwork.h"
 #include "NetworkTeams.h"
 #include "GameSetup.h"
+#include "OfflineAlliances.h"
 #include "ExtendedOptions.h"
 #include "ColourMaps.h"
 #include "WaterFix.h"
@@ -865,6 +866,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 
         if (!GameSetup::Install())
             OutputDebugStringA("fkSettings: 48-worm game setup is unavailable.\n");
+
+        if (!OfflineAlliances::Install())
+            OutputDebugStringA("fkSettings: Offline alliances are unavailable.\n");
 
         const bool weaponHooks = SecretWeapons::Install();
         const bool lobbyNetworkHooks = weaponHooks && FrontendNetwork::Install();

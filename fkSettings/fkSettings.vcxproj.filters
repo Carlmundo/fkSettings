@@ -45,6 +45,7 @@
       <Filter>Headers</Filter>
     </ClInclude>
     <ClInclude Include="GameSetup.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="OfflineAlliances.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="resource.h">
       <Filter>Headers</Filter>
     </ClInclude>
@@ -75,6 +76,7 @@
       <Filter>Code</Filter>
     </ClCompile>
     <ClCompile Include="GameSetup.cpp"><Filter>Code</Filter></ClCompile>
+    <ClCompile Include="OfflineAlliances.cpp"><Filter>Code</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="fkSettings.rc">

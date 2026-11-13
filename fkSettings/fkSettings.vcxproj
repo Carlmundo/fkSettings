@@ -177,6 +177,7 @@
     <ClInclude Include="ExtendedOptionsStrings.h" />
     <ClInclude Include="NetworkTeams.h" />
     <ClInclude Include="GameSetup.h" />
+    <ClInclude Include="OfflineAlliances.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
@@ -191,6 +192,7 @@
     <ClCompile Include="ExtendedOptions.cpp" />
     <ClCompile Include="NetworkTeams.cpp" />
     <ClCompile Include="GameSetup.cpp" />
+    <ClCompile Include="OfflineAlliances.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="fkSettings.rc" />

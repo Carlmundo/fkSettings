@@ -6,6 +6,7 @@
 #include "../fkSettings/ExtendedOptions.cpp"
 #include "../fkSettings/NetworkTeams.cpp"
 #include "../fkSettings/GameSetup.cpp"
+#include "../fkSettings/OfflineAlliances.cpp"
 #include "../fkSettings/WeaponTabOrder.h"
 #include "../fkSettings/FrontendFocus.cpp"
 #include <algorithm>
@@ -80,6 +81,11 @@ int main(int argc, char** argv)
             Check(MH_Initialize() == MH_OK, "initialize MinHook");
             Check(FrontendFocus::InstallInImage(image), "install frontend focus hooks");
             Check(image[0x25b80] == 0xe9 && image[0x25ba6] == 0xe9, "activate focus lifecycle hooks");
+            Check(OfflineAlliances::InstallInImage(image), "install offline alliances before the shared writer hooks");
+            Check(image[0x2df64] == 0xe9, "activate alliance result scoring alongside existing hooks");
+            Check(image[0x1e9bc] == 0xe9, "activate live match-score update before results pages");
+            Check(image[0x7d917] == 0xe9, "activate shared-winner sentence suppression");
+            Check(image[0x2bcfc] == 0xe9, "activate first-round alliance turn ordering");
             Check(SecretWeapons::InstallInImage(image), "install secret weapon hooks");
             Check(FrontendNetwork::InstallInImage(image), "install shared frontend packet hooks");
             Check(ExtendedOptions::InstallInImage(image), "install extended option hooks");
@@ -94,6 +100,11 @@ int main(int argc, char** argv)
             for (const auto site : colourMapSites)
                 Check(image[site] == 0xe9, "all colour map hooks activated");
             Check(MH_Uninitialize() == MH_OK, "remove test hooks");
+            Check(!memcmp(image + 0x2bcfc, "\x55\x8b\xec\x83\xec\x14\x89\x4d\xec", 9), "restore native team shuffle");
+            Check(!memcmp(image + 0x7d917, "\x55\x8b\xec\x6a\xff\x68", 6), "restore native statistics text renderer");
+            Check(!memcmp(image + 0x1e9bc, "\x55\x8b\xec\x6a\xff\x68", 6), "restore native result reader");
+            Check(!memcmp(image + 0x2df64, "\x55\x8b\xec\x83\xec\x0c\x89\x4d\xf4", 9),
+                "restore native result scoring after uninstalling hooks");
             Check(!memcmp(image + 0x25b80, originalFocusMinimize.data(), originalFocusMinimize.size()) &&
                 !memcmp(image + 0x25ba6, originalFocusRestore.data(), originalFocusRestore.size()), "restore focus lifecycle code");
             Check(image[0x975b0] == 0x56 && image[0x97780] == 0x8b && image[NetworkTeams::WriteGameRva] == 0x55,

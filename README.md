@@ -16,9 +16,17 @@ AI difficulty. All players need the updated `fkSettings.dll` for these matches.
 See [network team implementation and verification](docs/network-teams.md).
 
 Game setup supports **48 worms: six teams of eight**, in local and network games.
-The full roster fits in the native `Data/game.dat`; no `teams.dat` is required.
+The full roster fits in the native `Data/game.dat`.
 In-game support is provided separately by `wkEnchancedOptions`.
 See [setup limits and verification](docs/game-setup.md).
+
+Single-player setup automatically enables **alliances** when the player roster
+contains at least two teams.
+Left-click a team's colour square to cycle through Red, Blue, Green, Yellow,
+Purple and Teal; right-click to cycle backwards. Colour changes use mouse clicks
+only. Teams sharing a colour are allies.
+Launches write a seven-byte `Data/teams.dat` for the engine extension.
+See [offline alliance behaviour and file format](docs/offline-alliances.md).
 
 Game options (dialog 154) now includes **Extended Options** with 24 checkboxes
 and three numeric trackbars. Values persist in an appended `.opt` extension, transfer with the
