@@ -181,6 +181,7 @@ Locations are relative to the executable's loaded image base:
 | `0x1E29A` | Targeted lobby packet sender |
 | `0x1E3C4` | Broadcast lobby packet sender |
 | `0x39E41` | Lobby receive dispatcher (sender, packet, length) |
+| `0x3975E` | Joining-lobby initialization; clear the host ID before initial snapshot filtering |
 | `0x187648` | Native weapon records |
 | `0x1B4E6C` | Native weapon scheme dirty flag |
 

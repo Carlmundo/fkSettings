@@ -7,6 +7,8 @@
 #include "../fkSettings/NetworkTeams.cpp"
 #include "../fkSettings/GameSetup.cpp"
 #include "../fkSettings/OfflineAlliances.cpp"
+#include "../fkSettings/Alliances.cpp"
+#include "../fkSettings/OnlineAlliances.cpp"
 #include "../fkSettings/WeaponTabOrder.h"
 #include "../fkSettings/FrontendFocus.cpp"
 #include <algorithm>
@@ -45,9 +47,10 @@ int main(int argc, char** argv)
             BYTE* image = static_cast<BYTE*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
             Check(image != nullptr, "view frontend");
             const HMODULE module = reinterpret_cast<HMODULE>(image);
-            std::array<BYTE, 16> originalFocusMinimize{}, originalFocusRestore{};
+            std::array<BYTE, 16> originalFocusMinimize{}, originalFocusRestore{}, originalJoinInit{};
             memcpy(originalFocusMinimize.data(), image + 0x25b80, originalFocusMinimize.size());
             memcpy(originalFocusRestore.data(), image + 0x25ba6, originalFocusRestore.size());
+            memcpy(originalJoinInit.data(), image + 0x3975e, originalJoinInit.size());
             // SEC_IMAGE leaves these absolute operands at their preferred base.
             // Match the operands the loader supplies in a relocated frontend.
             const size_t defaults[] = { 0x9cdc, 0x9ff8, 0xa5d4, 0x31cd9, 0x392c0, 0x586a3, 0x5899e, 0x59611, 0x59e3d };
@@ -81,18 +84,25 @@ int main(int argc, char** argv)
             Check(MH_Initialize() == MH_OK, "initialize MinHook");
             Check(FrontendFocus::InstallInImage(image), "install frontend focus hooks");
             Check(image[0x25b80] == 0xe9 && image[0x25ba6] == 0xe9, "activate focus lifecycle hooks");
-            Check(OfflineAlliances::InstallInImage(image), "install offline alliances before the shared writer hooks");
+            Check(Alliances::InstallInImage(image), "install shared alliance hooks before the CPU writer hook");
+            Check(OfflineAlliances::InstallInImage(image), "install local alliance controls and launch handlers");
+            Check(Alliances::LocalCallbacks().launch && Alliances::LocalCallbacks().shuffle,
+                "connect local alliance controls to shared launch and shuffle hooks");
             Check(image[0x2df64] == 0xe9, "activate alliance result scoring alongside existing hooks");
             Check(image[0x1e9bc] == 0xe9, "activate live match-score update before results pages");
             Check(image[0x7d917] == 0xe9, "activate shared-winner sentence suppression");
             Check(image[0x2bcfc] == 0xe9, "activate first-round alliance turn ordering");
             Check(SecretWeapons::InstallInImage(image), "install secret weapon hooks");
             Check(FrontendNetwork::InstallInImage(image), "install shared frontend packet hooks");
+            Check(image[0x3975e] == 0xe9, "initialize the joining lobby before host-only packet filtering");
             Check(ExtendedOptions::InstallInImage(image), "install extended option hooks");
             Check(NetworkTeams::InstallInImage(image), "install network team hooks");
             Check(GameSetup::InstallInImage(image), "install 48-worm setup limits alongside other hooks");
             QueryPerformanceCounter(&beforeColourMaps);
             Check(ColourMaps::InstallInImage(image), "install colour map hooks");
+            Check(OnlineAlliances::InstallInImage(image), "install online alliance integration after shared hooks");
+            Check(OnlineAlliances::Callbacks().extend && OnlineAlliances::Callbacks().launch && OnlineAlliances::Callbacks().hostReceive,
+                "activate online alliance packet, launch and ownership handlers");
             QueryPerformanceCounter(&afterHooks);
             Check(image[0x975b0] == 0xe9 && image[0x97780] == 0xe9 && image[NetworkTeams::WriteGameRva] == 0xe9,
                 "all feature groups activated");
@@ -100,6 +110,7 @@ int main(int argc, char** argv)
             for (const auto site : colourMapSites)
                 Check(image[site] == 0xe9, "all colour map hooks activated");
             Check(MH_Uninitialize() == MH_OK, "remove test hooks");
+            Check(!memcmp(image + 0x3975e, originalJoinInit.data(), originalJoinInit.size()), "restore native joining-lobby initialization");
             Check(!memcmp(image + 0x2bcfc, "\x55\x8b\xec\x83\xec\x14\x89\x4d\xec", 9), "restore native team shuffle");
             Check(!memcmp(image + 0x7d917, "\x55\x8b\xec\x6a\xff\x68", 6), "restore native statistics text renderer");
             Check(!memcmp(image + 0x1e9bc, "\x55\x8b\xec\x6a\xff\x68", 6), "restore native result reader");

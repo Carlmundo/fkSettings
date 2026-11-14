@@ -2,6 +2,7 @@
 #define _WIN32_WINNT 0x0501
 #endif
 #define NOMINMAX
+#include "OnlineAlliances.h"
 typedef struct IUnknown IUnknown;
 #include <windows.h>
 #include <commctrl.h>
@@ -1101,7 +1102,9 @@ namespace
     }
     void QueueControl(void* object, uint32_t source, uint32_t target, bool broadcast, const void* packet, uint32_t length, bool readyChannel = false)
     {
-        if (length > 256) throw std::runtime_error("Oversize terrain handshake packet.");
+        // Start packets also carry CPU settings and the alliance roster before
+        // our map identity. Keep the queue bounded while accommodating all three.
+        if (length > 512) throw std::runtime_error("Oversize network control packet.");
         if (network.controls.size() >= 64) throw std::runtime_error("Too many pending terrain handshake packets.");
         NetworkState::Control control;
         control.object = object; control.source = source; control.readyChannel = readyChannel; control.lastProgress = GetTickCount();
@@ -1656,6 +1659,8 @@ namespace
         WatchNetworkWindow(object);
         const bool reliable = *reinterpret_cast<uint32_t*>(image + 0x188b14) == 1;
         const uint32_t payload = reliable ? (length >= 4 ? length - 4 : 0) : length;
+        if (OnlineAlliances::Callbacks().hostReceive && !OnlineAlliances::Callbacks().hostReceive(
+            object, sender, packet, payload, original == originalHostRoundReceive)) return;
         if (PacketType(packet, payload) == MapAckPacketType) { ReceiveMapAck(sender, packet, payload); return; }
         if (PacketType(packet, payload) == MapPacketType || !AcceptReady(sender, packet, payload)) return;
         if (payload < 4) return;
@@ -1667,8 +1672,10 @@ namespace
     { ReceiveHost(object, sender, packet, length, originalHostRoundReceive); }
     int __fastcall HostInit(void* object, void*)
     {
+        if (OnlineAlliances::Callbacks().lobby) OnlineAlliances::Callbacks().lobby(object, true, false, true);
         ResetNetwork(); network.hosting = true;
         const int result = originalHostInit(object);
+        if (result && OnlineAlliances::Callbacks().lobby) OnlineAlliances::Callbacks().lobby(object, true, false, false);
         if (result) WatchNetworkWindow(object);
         Trace("host lobby initialized", static_cast<uint32_t>(result), *reinterpret_cast<uint32_t*>(image + 0x188b14));
         Trace("NAT module loaded", GetModuleHandleW(L"fkWorm2NAT.dll") != nullptr);
@@ -1680,6 +1687,7 @@ namespace
         // entering a new lobby, returning from a match continues this session.
         network.hosting = true; network.joining = false; network.leavingForMatch = false;
         const int result = originalHostRoundInit(object);
+        if (result && OnlineAlliances::Callbacks().lobby) OnlineAlliances::Callbacks().lobby(object, true, true, false);
         if (result)
         {
             WatchNetworkWindow(object);
@@ -1692,6 +1700,7 @@ namespace
     int __fastcall JoinRoundInit(void* object, void*)
     {
         const int result = originalJoinRoundInit(object);
+        if (result && OnlineAlliances::Callbacks().lobby) OnlineAlliances::Callbacks().lobby(object, false, true, false);
         if (result)
         {
             SelectNetworkHost(*reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0xa8), true);
@@ -1715,6 +1724,7 @@ namespace
     void __fastcall LaunchHostRound(void* object, void*) { HostLaunch(object, originalHostRoundLaunch); }
     bool PrepareNetworkEngine()
     {
+        if (OnlineAlliances::Callbacks().canRunEngine && !OnlineAlliances::Callbacks().canRunEngine()) return false;
         if (NetworkMap())
         {
             // IPX packet 14 must already be submitted before native Close.

@@ -1,8 +1,10 @@
+#include "../fkSettings/Alliances.cpp"
 #include "../fkSettings/OfflineAlliances.cpp"
 #include <cstdio>
 #include <stdexcept>
 
 namespace OA = OfflineAlliances;
+namespace AC = Alliances;
 
 constexpr COLORREF ExpectedColours[] = {
     RGB(255, 128, 128), RGB(128, 128, 255), RGB(128, 255, 128),
@@ -18,7 +20,7 @@ static void ImageTests()
 {
     for (int size : { 16, 24, 32 })
     {
-        HIMAGELIST images = OA::MakeImages(size);
+        HIMAGELIST images = AC::MakeImages(size);
         Check(images != nullptr, "create alliance colour images");
         HDC screen = GetDC(nullptr), dc = CreateCompatibleDC(screen);
         HBITMAP bitmap = CreateCompatibleBitmap(screen, size, size);
@@ -456,8 +458,8 @@ static void LaunchTests()
     setName(4, "Unknown");
     Check(!OA::LaunchData(game.data(), data), "unmatched active team cannot silently receive the wrong alliance");
     setName(4, "");
-    Check(OA::SidecarPath("Data\\game.dat") == "Data\\teams.dat" &&
-        OA::SidecarPath("D:/test/GAME.DAT") == "D:/test/teams.dat" && OA::SidecarPath("scheme.opt").empty(), "sidecar path follows game.dat");
+    Check(AC::SidecarPath("Data\\game.dat") == "Data\\teams.dat" &&
+        AC::SidecarPath("D:/test/GAME.DAT") == "D:/test/teams.dat" && AC::SidecarPath("scheme.opt").empty(), "sidecar path follows game.dat");
     char temporary[MAX_PATH]{};
     Check(GetTempPathA(MAX_PATH, temporary) != 0, "temporary directory");
     char directory[MAX_PATH]{};
@@ -465,50 +467,50 @@ static void LaunchTests()
     DeleteFileA(directory);
     Check(CreateDirectoryA(directory, nullptr) != FALSE, "create fixture directory");
     const std::string gamePath = std::string(directory) + "\\game.dat";
-    const std::string sidecar = OA::SidecarPath(gamePath.c_str());
-    OA::originalWrite = reinterpret_cast<OA::NativeWrite>(NativeWriter);
+    const std::string sidecar = AC::SidecarPath(gamePath.c_str());
+    AC::originalWrite = reinterpret_cast<AC::NativeWrite>(NativeWriter);
     game[0x485] = 2; game[0x485 + 0x108] = 4; game[0x485 + 2 * 0x108] = 1;
-    Check(OA::WriteGame(game.data(), nullptr, gamePath.c_str()) == 1 && writes == 1, "sidecar and native writer succeed");
+    Check(AC::WriteGame(game.data(), nullptr, gamePath.c_str()) == 1 && writes == 1, "sidecar and native writer succeed");
     Check(ReadFileBytes(sidecar) == std::array<BYTE, 7>{{ 1, 3, 1, 1, 0, 0, 0 }}, "exact enabled bytes on disk");
-    Check(OA::launchedTeams.size() == 3 && OA::launchedTeams[0].name == "Third" &&
-        OA::launchedTeams[0].colour == 3 && OA::launchedTeams[2].name == "Second" && OA::launchedTeams[2].colour == 1,
+    Check(AC::launchedTeams.size() == 3 && AC::launchedTeams[0].name == "Third" &&
+        AC::launchedTeams[0].colour == 3 && AC::launchedTeams[2].name == "Second" && AC::launchedTeams[2].colour == 1,
         "successful launch freezes the actual serialized names and alliances");
-    Check(OA::launchedTeams[0].wins == 2 && OA::launchedTeams[1].wins == 4 && OA::launchedTeams[2].wins == 1,
+    Check(AC::launchedTeams[0].wins == 2 && AC::launchedTeams[1].wins == 4 && AC::launchedTeams[2].wins == 1,
         "launch snapshot retains each named team's previous-round score");
     OA::roster.teams[1].colour = 6;
-    Check(OA::launchedTeams[2].colour == 1, "later roster edits cannot change result scoring context");
+    Check(AC::launchedTeams[2].colour == 1, "later roster edits cannot change result scoring context");
     OA::roster.Sync({ { 7, "First", 0 } });
     setName(0, "First"); setName(1, ""); setName(2, "");
-    Check(OA::WriteGame(game.data(), nullptr, gamePath.c_str()) == 1 && ReadFileBytes(sidecar) == std::array<BYTE, 7>{},
+    Check(AC::WriteGame(game.data(), nullptr, gamePath.c_str()) == 1 && ReadFileBytes(sidecar) == std::array<BYTE, 7>{},
         "one-team launch overwrites previous alliances with seven zeros");
-    Check(OA::launchedTeams.empty(), "inactive launch clears previous scoring context");
+    Check(AC::launchedTeams.empty(), "inactive launch clears previous scoring context");
     OA::roster.Sync({}); setName(0, "");
-    Check(OA::WriteGame(game.data(), nullptr, gamePath.c_str()) == 1 && ReadFileBytes(sidecar) == std::array<BYTE, 7>{},
+    Check(AC::WriteGame(game.data(), nullptr, gamePath.c_str()) == 1 && ReadFileBytes(sidecar) == std::array<BYTE, 7>{},
         "empty launch writes seven zeros");
     OA::roster.Sync({ { 7, "First", 0 }, { 3, "Second", 0 } });
     setName(0, "Second"); setName(1, "First");
-    Check(OA::WriteGame(game.data(), nullptr, gamePath.c_str()) == 1 &&
+    Check(AC::WriteGame(game.data(), nullptr, gamePath.c_str()) == 1 &&
         ReadFileBytes(sidecar) == std::array<BYTE, 7>{{ 1, 2, 1, 0, 0, 0, 0 }},
         "two-team launch automatically writes active alliance assignments");
-    Check(OA::launchedTeams.size() == 2 && OA::launchedTeams[0].name == "Second" && OA::launchedTeams[0].colour == 2,
+    Check(AC::launchedTeams.size() == 2 && AC::launchedTeams[0].name == "Second" && AC::launchedTeams[0].colour == 2,
         "next local launch replaces scoring context");
     OA::localLaunch = false;
-    Check(OA::WriteGame(game.data(), nullptr, gamePath.c_str()) == 1 && ReadFileBytes(sidecar) == std::array<BYTE, 7>{},
+    Check(AC::WriteGame(game.data(), nullptr, gamePath.c_str()) == 1 && ReadFileBytes(sidecar) == std::array<BYTE, 7>{},
         "online and Quick Play do not inherit local alliances");
-    Check(OA::launchedTeams.empty(), "online and Quick Play clear alliance scoring context");
+    Check(AC::launchedTeams.empty(), "online and Quick Play clear alliance scoring context");
     OA::localLaunch = true;
-    OA::launchedTeams.push_back({ "Old match", 1 });
+    AC::launchedTeams.push_back({ "Old match", 1 });
     nativeResult = 0;
-    Check(OA::WriteGame(game.data(), nullptr, gamePath.c_str()) == 0 && GetFileAttributesA(sidecar.c_str()) == INVALID_FILE_ATTRIBUTES,
+    Check(AC::WriteGame(game.data(), nullptr, gamePath.c_str()) == 0 && GetFileAttributesA(sidecar.c_str()) == INVALID_FILE_ATTRIBUTES,
         "native failure removes sidecar");
-    Check(OA::launchedTeams.empty(), "native write failure cannot retain stale scoring context");
+    Check(AC::launchedTeams.empty(), "native write failure cannot retain stale scoring context");
     nativeResult = 1;
     HANDLE blocked = CreateFileA(sidecar.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
     Check(blocked != INVALID_HANDLE_VALUE, "lock sidecar fixture");
     const int before = writes;
-    OA::launchedTeams.push_back({ "Old match", 1 });
-    Check(OA::WriteGame(game.data(), nullptr, gamePath.c_str()) == 0 && writes == before, "sidecar failure stops native game writer");
-    Check(OA::launchedTeams.empty(), "sidecar failure cannot retain stale scoring context");
+    AC::launchedTeams.push_back({ "Old match", 1 });
+    Check(AC::WriteGame(game.data(), nullptr, gamePath.c_str()) == 0 && writes == before, "sidecar failure stops native game writer");
+    Check(AC::launchedTeams.empty(), "sidecar failure cannot retain stale scoring context");
     CloseHandle(blocked);
     DeleteFileA(sidecar.c_str());
     Check(RemoveDirectoryA(directory) != FALSE, "clean fixture directory");
@@ -554,21 +556,21 @@ static void TurnOrderTests()
 {
     TurnRoster();
     const auto game = TurnGame();
-    const auto originalRandom = OA::random;
-    OA::random = TurnRandom;
+    const auto originalRandom = AC::random;
+    AC::random = TurnRandom;
     std::array<int, 6> order{};
     turnDraws = {{ 0, 0 }}; turnDraw = 0;
-    Check(OA::AllianceTurnOrder(game.data(), order) && order == std::array<int, 6>{{ 3, 5, 0, 4, 1, 2 }} && turnDraw == 2,
+    Check(AC::AllianceTurnOrderFor(game.data(), OA::MatchTeams(), order) && order == std::array<int, 6>{{ 3, 5, 0, 4, 1, 2 }} && turnDraw == 2,
         "Blue Yellow Red yields Blue Yellow Red Blue Red Red");
     turnDraws = {{ 2, 1 }}; turnDraw = 0;
-    Check(OA::AllianceTurnOrder(game.data(), order) && order == std::array<int, 6>{{ 0, 3, 5, 1, 4, 2 }},
+    Check(AC::AllianceTurnOrderFor(game.data(), OA::MatchTeams(), order) && order == std::array<int, 6>{{ 0, 3, 5, 1, 4, 2 }},
         "Red Blue Yellow yields Red Blue Yellow Red Blue Red");
     std::vector<std::array<BYTE, 3>> permutations;
     for (int last = 0; last < 3; ++last)
         for (int second = 0; second < 2; ++second)
         {
             turnDraws = {{ last, second }}; turnDraw = 0;
-            Check(OA::AllianceTurnOrder(game.data(), order), "build every possible three-colour ordering");
+            Check(AC::AllianceTurnOrderFor(game.data(), OA::MatchTeams(), order), "build every possible three-colour ordering");
             std::array<BYTE, 3> first{{ TurnColours[order[0]], TurnColours[order[1]], TurnColours[order[2]] }};
             Check(first[0] != first[1] && first[0] != first[2] && first[1] != first[2], "each first cycle visits every colour once");
             Check(std::find(permutations.begin(), permutations.end(), first) == permutations.end(), "every colour permutation is reachable once");
@@ -582,32 +584,32 @@ static void TurnOrderTests()
         }
     for (auto& team : OA::roster.teams) team.colour = team.savedIndex < 3 ? 1 : 6;
     turnDraws = {{ 1, 0 }}; turnDraw = 0;
-    Check(OA::AllianceTurnOrder(game.data(), order) && order == std::array<int, 6>{{ 0, 3, 1, 4, 2, 5 }} && turnDraw == 1,
+    Check(AC::AllianceTurnOrderFor(game.data(), OA::MatchTeams(), order) && order == std::array<int, 6>{{ 0, 3, 1, 4, 2, 5 }} && turnDraw == 1,
         "balanced Red and Teal teams alternate with one colour-order draw");
     for (auto& team : OA::roster.teams) team.colour = team.savedIndex < 5 ? 1 : 6;
     turnDraws = {{ 0, 0 }}; turnDraw = 0;
-    Check(OA::AllianceTurnOrder(game.data(), order) && order == std::array<int, 6>{{ 5, 0, 1, 2, 3, 4 }} && turnDraw == 1,
+    Check(AC::AllianceTurnOrderFor(game.data(), OA::MatchTeams(), order) && order == std::array<int, 6>{{ 5, 0, 1, 2, 3, 4 }} && turnDraw == 1,
         "a lone Teal can start before five Reds and exhausted colours are skipped");
     turnDraw = 0;
     for (auto& team : OA::roster.teams) team.colour = static_cast<BYTE>(team.savedIndex + 1);
-    Check(!OA::AllianceTurnOrder(game.data(), order) && turnDraw == 0, "distinct colours retain the native shuffle and RNG state");
+    Check(!AC::AllianceTurnOrderFor(game.data(), OA::MatchTeams(), order) && turnDraw == 0, "distinct colours retain the native shuffle and RNG state");
     for (auto& team : OA::roster.teams) team.colour = 1;
-    Check(!OA::AllianceTurnOrder(game.data(), order) && turnDraw == 0, "one colour cannot form an opposing alliance match");
+    Check(!AC::AllianceTurnOrderFor(game.data(), OA::MatchTeams(), order) && turnDraw == 0, "one colour cannot form an opposing alliance match");
     TurnRoster();
     auto invalid = game;
     for (int count : { 0, 1, 7 })
     {
         invalid[0x483] = static_cast<BYTE>(count);
-        Check(!OA::AllianceTurnOrder(invalid.data(), order) && turnDraw == 0, "invalid team counts do not consume randomness or reorder teams");
+        Check(!AC::AllianceTurnOrderFor(invalid.data(), OA::MatchTeams(), order) && turnDraw == 0, "invalid team counts do not consume randomness or reorder teams");
     }
     invalid = game;
     strcpy_s(reinterpret_cast<char*>(invalid.data() + 0x486), 17, "Unknown");
-    Check(!OA::AllianceTurnOrder(invalid.data(), order) && turnDraw == 0, "unmatched names preserve the native order");
+    Check(!AC::AllianceTurnOrderFor(invalid.data(), OA::MatchTeams(), order) && turnDraw == 0, "unmatched names preserve the native order");
     invalid = game;
     strcpy_s(reinterpret_cast<char*>(invalid.data() + 0x486), 17, TurnNames[1]);
-    Check(!OA::AllianceTurnOrder(invalid.data(), order) && turnDraw == 0, "duplicate names cannot duplicate a team in the turn order");
+    Check(!AC::AllianceTurnOrderFor(invalid.data(), OA::MatchTeams(), order) && turnDraw == 0, "duplicate names cannot duplicate a team in the turn order");
     Check(game == TurnGame(), "planning the turn order does not change game data");
-    OA::random = originalRandom;
+    AC::random = originalRandom;
 }
 
 static std::array<BYTE, 0x100> turnThreadData{};
@@ -639,8 +641,8 @@ static void NativeTurnOrderTests(BYTE* image)
     }
     Check(relocated > 0, "relocate native memcpy jump tables");
     FlushInstructionCache(GetCurrentProcess(), image + 0x96980, 0x340);
-    Check(OA::swapTeams == reinterpret_cast<OA::NativeSwapTeams>(image + 0x2bd78) &&
-        OA::random == reinterpret_cast<OA::NativeRandom>(image + 0x96770), "use validated native team swapping and random generation");
+    Check(AC::swapTeams == reinterpret_cast<AC::NativeSwapTeams>(image + 0x2bd78) &&
+        AC::random == reinterpret_cast<AC::NativeRandom>(image + 0x96770), "use validated native team swapping and random generation");
     // Supply only CRT thread-local storage. Run the real srand/rand, shuffle,
     // full-record/pointer swaps and later-round starter rotation machine code.
     Check(MH_CreateHook(image + 0x9d680, reinterpret_cast<void*>(TurnThreadData), nullptr) == MH_OK &&
@@ -713,7 +715,7 @@ static void NativeTurnOrderTests(BYTE* image)
 }
 
 // Launch order reproduces teams.dat = 01 04 02 02 02 00 00.
-static std::vector<OA::MatchTeam> ExampleTeams()
+static std::vector<AC::MatchTeam> ExampleTeams()
 {
     return { { "Helmut", 4 }, { "Donut", 2 }, { "Lenny", 2 }, { "Buddy", 2 } };
 }
@@ -758,7 +760,7 @@ static void ResultsTests()
 {
     const auto teams = ExampleTeams();
     ResultsFixture example;
-    Check(OA::AwardWinningAlliance(example.bytes.data(), teams), "award alliance in the supplied one-versus-three example");
+    Check(AC::AwardWinningAlliance(example.bytes.data(), teams), "award alliance in the supplied one-versus-three example");
     example.CheckWins({ "Donut", "Lenny", "Buddy" });
     ResultsFixture expected;
     // Check the entire object: kills, damage, survivor/exclusion fields and all
@@ -766,19 +768,19 @@ static void ResultsTests()
     for (int row : { 0, 2, 3 }) expected.Field(0x25f8 + row * 0x644) = 1;
     for (int row : { 0, 1, 2 }) expected.Field(0x60 + row * 0x644) = 1;
     Check(example.bytes == expected.bytes, "only winning alliance flags change");
-    Check(OA::AwardWinningAlliance(example.bytes.data(), teams) && example.bytes == expected.bytes,
+    Check(AC::AwardWinningAlliance(example.bytes.data(), teams) && example.bytes == expected.bytes,
         "awarding again does not increment counters or double-count a round");
 
     ResultsFixture solo;
     solo.Field(0x2bb8) = 0;
     solo.Field(0x2bb8 + 0x644) = 2;
-    Check(OA::AwardWinningAlliance(solo.bytes.data(), teams), "lone opposing team can win instead");
+    Check(AC::AwardWinningAlliance(solo.bytes.data(), teams), "lone opposing team can win instead");
     solo.CheckWins({ "Helmut" });
 
     ResultsFixture excluded;
     excluded.Field(0x2bb8 + 0x644) = 1;
     excluded.Field(0x2b84 + 0x644) = 1;
-    Check(OA::AwardWinningAlliance(excluded.bytes.data(), teams), "excluded opponent is not a surviving winner");
+    Check(AC::AwardWinningAlliance(excluded.bytes.data(), teams), "excluded opponent is not a surviving winner");
     excluded.CheckWins({ "Donut", "Lenny", "Buddy" });
 
     ResultsFixture six;
@@ -787,12 +789,12 @@ static void ResultsTests()
     six.SetName(0x68c + 4 * 0x644, "Sixth"); six.SetName(0x68c + 5 * 0x644, "Fifth");
     auto sixTeams = teams;
     sixTeams.push_back({ "Fifth", 2 }); sixTeams.push_back({ "Sixth", 2 });
-    Check(OA::AwardWinningAlliance(six.bytes.data(), sixTeams), "six-team match awards all five allied winners");
+    Check(AC::AwardWinningAlliance(six.bytes.data(), sixTeams), "six-team match awards all five allied winners");
     six.CheckWins({ "Donut", "Lenny", "Buddy", "Fifth", "Sixth" });
 
-    const auto unchanged = [](ResultsFixture result, const std::vector<OA::MatchTeam>& context) {
+    const auto unchanged = [](ResultsFixture result, const std::vector<AC::MatchTeam>& context) {
         const auto before = result.bytes;
-        Check(!OA::AwardWinningAlliance(result.bytes.data(), context) && result.bytes == before,
+        Check(!AC::AwardWinningAlliance(result.bytes.data(), context) && result.bytes == before,
             "draw, inactive or invalid context leaves all native result fields unchanged");
     };
     unchanged(ResultsFixture{}, {});
@@ -865,9 +867,9 @@ static void ScorePipelineTests(BYTE* image)
     const BYTE previous = image[0x1ec5a], ret = 0xc3;
     Patch(image + 0x1ec5a, &ret, 1); // End after the native one-team increment.
     nativeScoreBlock = image + 0x1ec32;
-    const auto originalRead = OA::originalReadResults;
-    OA::originalReadResults = reinterpret_cast<OA::NativeReadResults>(ReadNativeFixture);
-    const auto read = reinterpret_cast<OA::NativeReadResults>(image + 0x254a);
+    const auto originalRead = AC::originalReadResults;
+    AC::originalReadResults = reinterpret_cast<AC::NativeReadResults>(ReadNativeFixture);
+    const auto read = reinterpret_cast<AC::NativeReadResults>(image + 0x254a);
     const auto award = reinterpret_cast<OA::NativeVoid>(image + 0x2180);
     using Merge = void (__thiscall*)(void*, const void*);
     const auto merge = reinterpret_cast<Merge>(image + 0x2e220);
@@ -876,7 +878,7 @@ static void ScorePipelineTests(BYTE* image)
     const auto statsWinner = reinterpret_cast<Winner>(image + 0x2df18);
     std::vector<BYTE> controller(0x31948);
     BYTE* game = controller.data() + 0x30c58;
-    auto teams = std::vector<OA::MatchTeam>{ { "Buddy", 2 }, { "TEAM17MicroProse", 2 }, { "Donut", 4 } };
+    auto teams = std::vector<AC::MatchTeam>{ { "Buddy", 2 }, { "TEAM17MicroProse", 2 }, { "Donut", 4 } };
     const auto prepareGame = [&](const std::vector<int>& order) {
         memset(game, 0, 0xcf0);
         game[0x483] = 3;
@@ -888,7 +890,7 @@ static void ScorePipelineTests(BYTE* image)
             game[0x485 + row * 0x108] = team.wins;
         }
         *reinterpret_cast<int*>(controller.data() + 0xfa2c) = 3;
-        OA::launchedTeams = teams;
+        AC::launchedTeams = teams;
     };
     const auto scoreFor = [&](const std::string& name) {
         for (int row = 0; row < 3; ++row)
@@ -934,7 +936,7 @@ static void ScorePipelineTests(BYTE* image)
             nativeWinningRow = static_cast<int>(std::find(order.begin(), order.end(), winningTeam) - order.begin());
             Check(read(controller.data()) == 0, "hooked native result reader succeeds");
             const std::array<BYTE, 3> once{{ scoreFor(teams[0].name), scoreFor(teams[1].name), scoreFor(teams[2].name) }};
-            Check(OA::UpdateMatchScores(game, 3, OA::launchedTeams), "score repair accepts an already updated table");
+            Check(AC::UpdateMatchScores(game, 3, AC::launchedTeams), "score repair accepts an already updated table");
             Check(once == std::array<BYTE, 3>{{ scoreFor(teams[0].name), scoreFor(teams[1].name), scoreFor(teams[2].name) }},
                 "a repeated score refresh adds no extra round");
             ResultsFixture result;
@@ -961,13 +963,13 @@ static void ScorePipelineTests(BYTE* image)
     Check(read(controller.data()) == 0 && scoreFor("Buddy") == 0 && scoreFor("TEAM17MicroProse") == 0,
         "draw result grants no live score");
     *reinterpret_cast<int*>(controller.data() + 0xfa2c) = 3;
-    OA::launchedTeams.clear();
+    AC::launchedTeams.clear();
     Check(read(controller.data()) == 0 && scoreFor("Buddy") == 1 && scoreFor("TEAM17MicroProse") == 0,
         "non-alliance result reader keeps native one-winner scoring");
-    const auto unchanged = [&](const std::vector<OA::MatchTeam>& context, int status = 3) {
+    const auto unchanged = [&](const std::vector<AC::MatchTeam>& context, int status = 3) {
         std::array<BYTE, 0xcf0> before{};
         memcpy(before.data(), game, before.size());
-        Check(!OA::UpdateMatchScores(game, status, context) && !memcmp(game, before.data(), before.size()),
+        Check(!AC::UpdateMatchScores(game, status, context) && !memcmp(game, before.data(), before.size()),
             "invalid or non-winning score data preserves all native game fields");
     };
     prepareGame({ 0, 1, 2 });
@@ -985,7 +987,7 @@ static void ScorePipelineTests(BYTE* image)
     unchanged(teams);
     game[0x485 + 2 * 0x108] = 0; game[0x485] = 2;
     unchanged(teams);
-    OA::originalReadResults = originalRead;
+    AC::originalReadResults = originalRead;
     Patch(image + 0x1ec5a, &previous, 1);
 }
 
@@ -1002,11 +1004,11 @@ static void __fastcall DrawTextFixture(void* object, void*, UINT stringId, int x
 
 static void WinnerTextTests(BYTE* image)
 {
-    const auto originalStatistics = OA::statistics;
-    const auto originalDraw = OA::originalDrawString;
+    const auto originalStatistics = AC::statistics;
+    const auto originalDraw = AC::originalDrawString;
     Check(originalStatistics == image + 0x17eb60, "winner text uses the accumulated statistics table");
-    OA::originalDrawString = reinterpret_cast<OA::NativeDrawString>(DrawTextFixture);
-    const auto draw = reinterpret_cast<OA::NativeDrawString>(image + 0x2f9f);
+    AC::originalDrawString = reinterpret_cast<AC::NativeDrawString>(DrawTextFixture);
+    const auto draw = reinterpret_cast<AC::NativeDrawString>(image + 0x2f9f);
     ResultsFixture results;
     results.Field(0xc) = 2;
     expectedTextObject = &results;
@@ -1020,7 +1022,7 @@ static void WinnerTextTests(BYTE* image)
             Check(textDraws == before + (hidden ? 0 : 1), "both winner sentences hide only for multiple game winners");
         }
     };
-    OA::statistics = results.bytes.data();
+    AC::statistics = results.bytes.data();
     results.Field(0x60) = 1;
     results.Field(0x60 + 0x644) = 1;
     checkDrawing(false); // A tied lead is not a shared game victory.
@@ -1046,10 +1048,10 @@ static void WinnerTextTests(BYTE* image)
         results.Field(0xc) = invalidLimit;
         checkDrawing(false);
     }
-    OA::statistics = nullptr;
+    AC::statistics = nullptr;
     checkDrawing(false);
-    OA::statistics = originalStatistics;
-    OA::originalDrawString = originalDraw;
+    AC::statistics = originalStatistics;
+    AC::originalDrawString = originalDraw;
 }
 
 static void HookTests(const char* path)
@@ -1072,11 +1074,12 @@ static void HookTests(const char* path)
         Check(VirtualProtect(image + site, 1, PAGE_EXECUTE_READWRITE, &old) != FALSE, "prepare signature test");
         const BYTE original = image[site];
         image[site] = 0x90;
-        Check(!OA::InstallInImage(image), "reject altered signature before installing any hooks");
+        Check(!(site == 0x78f7b || site == 0x79343 || site == 0x77da2 ? OA::InstallInImage(image) : AC::InstallInImage(image)),
+            "reject altered signature before installing any hooks in its module");
         image[site] = original;
         VirtualProtect(image + site, 1, old, &old);
     }
-    Check(OA::InstallInImage(image), "install all native alliance hooks");
+    Check(AC::InstallInImage(image) && OA::InstallInImage(image), "install shared and local native alliance hooks");
     Check(image[0x78f7b] == 0xe9 && image[0x79343] == 0xe9 && image[0x77da2] == 0xe9, "activate local setup and round hooks");
     Check(image[0x2df64] == 0xe9, "activate result-awarding hook at native implementation");
     Check(image[0x1e9bc] == 0xe9, "activate live match-score hook before both results tabs");
@@ -1085,14 +1088,14 @@ static void HookTests(const char* path)
     NativeTurnOrderTests(image);
     WinnerTextTests(image);
     ScorePipelineTests(image);
-    OA::launchedTeams = ExampleTeams();
+    AC::launchedTeams = ExampleTeams();
     ResultsFixture allied;
     award(allied.bytes.data());
     allied.CheckWins({ "Donut", "Lenny", "Buddy" });
     const auto once = allied.bytes;
     award(allied.bytes.data());
     Check(allied.bytes == once, "native thunk plus alliance hook remains idempotent");
-    OA::launchedTeams.clear();
+    AC::launchedTeams.clear();
     ResultsFixture inactive;
     award(inactive.bytes.data());
     Check(inactive.bytes == native.bytes, "no launch context preserves exact native single-winner behaviour");
@@ -1101,7 +1104,7 @@ static void HookTests(const char* path)
     Check(MH_CreateHook(image + 0x26e38, reinterpret_cast<void*>(NativeWriter), nullptr) == MH_OK &&
         MH_EnableHook(image + 0x26e38) == MH_OK, "install second feature's writer hook after the thunk");
     const int before = writes;
-    const auto thunk = reinterpret_cast<OA::NativeWrite>(image + 0x2ba3);
+    const auto thunk = reinterpret_cast<AC::NativeWrite>(image + 0x2ba3);
     Check(thunk(nullptr, "unrelated.dat") == 1 && writes == before + 1, "thunk still reaches subsequently installed writer hook");
     Check(MH_Uninitialize() == MH_OK, "restore native code");
     UnmapViewOfFile(image); CloseHandle(mapping); CloseHandle(file);
@@ -1112,6 +1115,7 @@ int main(int argc, char** argv)
     try
     {
         Check(argc == 2, "Usage: OfflineAlliancesTests.exe frontend.exe");
+        OA::RegisterLocalHandlers();
         ImageTests(); RosterTests(); EditorTests(); NativeDialogTests(argv[1]); DpiLayoutTests(argv[1]);
         TurnOrderTests(); LaunchTests(); ResultsTests(); HookTests(argv[1]);
         puts("PASS: automatic alliances, rendering and controls, DPI-aligned sprites and squares, interleaved alliance turn order and native round rotation, launch data and scores, consecutive-round native score/aggregation/victory checks, winner text IDs 338/340, failures and native hooks");

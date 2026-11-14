@@ -123,7 +123,7 @@ namespace ColourMaps
             strings.strSaveFailed = L"Échec de l’enregistrement";
             break;
         case 6: // is
-            strings.strImportFolder = L"Veldu .dat skrá innan sömu möppu og Levels\Import í leiknum.";
+            strings.strImportFolder = L"Veldu .dat skrá innan sömu möppu og Levels\\Import í leiknum.";
             strings.strHostMapError = L"Eftirfarandi leikmenn geta ekki notað kortið þitt:";
             strings.strLocalMapError = L"Þú getur ekki notað kort gestgjafans.";
             strings.strPlayer = L"Leikmaður";
@@ -179,7 +179,7 @@ namespace ColourMaps
             strings.strSaveFailed = L"Zapisywanie nie powiodło się";
             break;
         case 10: // pt
-            strings.strImportFolder = L"Seleciona um ficheiro .dat dentro da pasta Levels\Import do jogo.";
+            strings.strImportFolder = L"Selecione um ficheiro .dat dentro da pasta Levels\\Import do jogo.";
             strings.strHostMapError = L"Os seguintes jogadores não conseguem usar o teu mapa:";
             strings.strLocalMapError = L"Não podes usar o mapa do anfitrião.";
             strings.strPlayer = L"Jogador";
@@ -193,7 +193,7 @@ namespace ColourMaps
             strings.strSaveFailed = L"A gravação falhou";
             break;
         case 11: // pt-br
-            strings.strImportFolder = L"Selecione um ficheiro .dat dentro da pasta Levels\Import do jogo.";
+            strings.strImportFolder = L"Selecione um arquivo .dat dentro da pasta Levels\\Import do jogo.";
             strings.strHostMapError = L"Os seguintes jogadores não conseguem usar o seu mapa:";
             strings.strLocalMapError = L"Você não podes usar o mapa do anfitrião.";
             strings.strPlayer = L"Jogador";

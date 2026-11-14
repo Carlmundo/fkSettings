@@ -103,8 +103,9 @@ on the same native functions.
 | 24 | 108 | Six records: 17-byte terminated team name, one-byte skill |
 
 Skill 0 means no computer team in that entry. Valid AI skills are 1–100. The
-complete packet is 132 bytes; matches containing only humans keep the original
-20-byte packet. Targeted sends and broadcasts use the same extension.
+CPU portion is 132 bytes; human-only matches omit that portion. Online alliances
+append their own mandatory trailer afterwards. Targeted sends and broadcasts
+use the same composition; see [online alliances](online-alliances.md).
 
 The joining lobby accepts settings only from its current host, before the native
 start handler runs. It validates the length, signature, difficulty, terminated

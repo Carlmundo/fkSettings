@@ -9,6 +9,7 @@ typedef struct IUnknown IUnknown;
 #include "NetworkTeams.h"
 #include "ExtendedOptions.h"
 #include "ColourMaps.h"
+#include "OnlineAlliances.h"
 
 namespace FrontendNetwork
 {
@@ -18,9 +19,24 @@ namespace
     using SendToPlayer = void (__thiscall*)(void*, uint32_t, uint32_t, const void*, uint32_t);
     using SendToAll = void (__thiscall*)(void*, uint32_t, const void*, uint32_t);
     using ReceivePacket = void (__thiscall*)(void*, uint32_t, const void*, uint32_t);
+    using InitLobby = int (__thiscall*)(void*);
     SendToPlayer originalSendToPlayer = nullptr;
     SendToAll originalSendToAll = nullptr;
     ReceivePacket originalReceivePacket = nullptr;
+    InitLobby originalJoinInit = nullptr;
+
+    int __fastcall InitJoiningLobby(void* object, void*)
+    {
+        // The native constructor/init leaves this field untouched. Only the
+        // initial type-5 snapshot establishes the host; reused dialog memory
+        // must not cause that snapshot to fail the host-only packet checks.
+        *reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0x163c) = 0;
+        auto& alliances = OnlineAlliances::Callbacks();
+        if (alliances.lobby) alliances.lobby(object, false, false, true);
+        const int result = originalJoinInit(object);
+        if (result && alliances.lobby) alliances.lobby(object, false, false, false);
+        return result;
+    }
 
     void SendFinalPacket(void* object, uint32_t source, uint32_t target, bool broadcast, const void* packet, uint32_t length)
     {
@@ -28,9 +44,19 @@ namespace
         else originalSendToPlayer(object, source, target, packet, length);
     }
     void SendPlayerPacket(void* object, uint32_t source, uint32_t target, const void* packet, uint32_t length)
-    { ColourMaps::SendNetworkPacket(object, source, target, false, packet, length, SendFinalPacket); }
+    {
+        std::vector<BYTE> alliances;
+        if (OnlineAlliances::Callbacks().extend && OnlineAlliances::Callbacks().extend(packet, length, alliances))
+        { packet = alliances.data(); length = static_cast<uint32_t>(alliances.size()); }
+        ColourMaps::SendNetworkPacket(object, source, target, false, packet, length, SendFinalPacket);
+    }
     void SendAllPacket(void* object, uint32_t source, const void* packet, uint32_t length)
-    { ColourMaps::SendNetworkPacket(object, source, 0, true, packet, length, SendFinalPacket); }
+    {
+        std::vector<BYTE> alliances;
+        if (OnlineAlliances::Callbacks().extend && OnlineAlliances::Callbacks().extend(packet, length, alliances))
+        { packet = alliances.data(); length = static_cast<uint32_t>(alliances.size()); }
+        ColourMaps::SendNetworkPacket(object, source, 0, true, packet, length, SendFinalPacket);
+    }
 
     // Both transports copy the packet before returning, just as they do with
     // the native serializer's stack buffer. Share these detours with network
@@ -93,6 +119,9 @@ namespace
             if (host && sender == host && payloadLength >= 4) ColourMaps::JoiningLobby(object);
             return;
         }
+        auto& alliances = OnlineAlliances::Callbacks();
+        if (alliances.lobby) alliances.lobby(object, false, false, false);
+        if (alliances.receive && !alliances.receive(object, sender, host, packet, payloadLength, false)) return;
         length = payloadLength + (reliable ? 4 : 0);
         if (!ExtendedOptions::ReceivePacket(sender, host, packet, payloadLength)) return;
         NetworkTeams::ReceiveStartPacket(sender, host, packet, payloadLength);
@@ -109,6 +138,7 @@ namespace
                 payloadLength >= ExtendedOptions::NativePacketSize ?
                 static_cast<uint32_t>(ExtendedOptions::NativePacketSize) : length);
             if (lobbySize) NetworkTeams::ReceiveLobbyPacket(object, sender, packet, payloadLength);
+            if (alliances.afterReceive) alliances.afterReceive(object, sender, packet, payloadLength, false);
             if (packetType == 5) ColourMaps::JoiningLobby(object);
             return;
         }
@@ -138,6 +168,7 @@ bool InstallInImage(BYTE* frontendImage)
         { 0x1e29a, "\x55\x8b\xec\x83\xec\x0c\x89\x4d\xf4", 9, reinterpret_cast<void*>(SendPacketToPlayer), reinterpret_cast<void**>(&originalSendToPlayer) },
         { 0x1e3c4, "\x55\x8b\xec\x83\xec\x0c\x89\x4d\xf4", 9, reinterpret_cast<void*>(SendPacketToAll), reinterpret_cast<void**>(&originalSendToAll) },
         { 0x39e41, "\x55\x8b\xec\x6a\xff\x68\x6d\xa0\x4e\x00", 10, reinterpret_cast<void*>(ReceiveLobbyPacket), reinterpret_cast<void**>(&originalReceivePacket) },
+        { 0x3975e, "\x55\x8b\xec\x6a\xff\x68\x32\xa0\x4e\x00", 10, reinterpret_cast<void*>(InitJoiningLobby), reinterpret_cast<void**>(&originalJoinInit) },
     };
     // Check every site before creating any hook; addresses are relative to this executable.
     for (const auto& hook : hooks)
@@ -167,6 +198,7 @@ bool InstallInImage(BYTE* frontendImage)
             MH_DisableHook(image + hooks[i].rva);
             MH_RemoveHook(image + hooks[i].rva);
         }
+    if (success) OnlineAlliances::Callbacks().send = SendFinalPacket;
     return success;
 }
 }

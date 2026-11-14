@@ -46,6 +46,8 @@
     </ClInclude>
     <ClInclude Include="GameSetup.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="OfflineAlliances.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="Alliances.h"><Filter>Headers</Filter></ClInclude>
+    <ClInclude Include="OnlineAlliances.h"><Filter>Headers</Filter></ClInclude>
     <ClInclude Include="resource.h">
       <Filter>Headers</Filter>
     </ClInclude>
@@ -77,6 +79,8 @@
     </ClCompile>
     <ClCompile Include="GameSetup.cpp"><Filter>Code</Filter></ClCompile>
     <ClCompile Include="OfflineAlliances.cpp"><Filter>Code</Filter></ClCompile>
+    <ClCompile Include="Alliances.cpp"><Filter>Code</Filter></ClCompile>
+    <ClCompile Include="OnlineAlliances.cpp"><Filter>Code</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="fkSettings.rc">

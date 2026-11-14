@@ -10,6 +10,8 @@ typedef struct IUnknown IUnknown;
 #include "include/MinHook.h"
 #include "NetworkTeams.h"
 #include "ColourMaps.h"
+#include "OnlineAlliances.h"
+#include "Alliances.h"
 
 namespace NetworkTeams
 {
@@ -181,6 +183,11 @@ namespace
 
     void __fastcall AddComputerTeamRow(void* object, void*, const BYTE* team, int savedIndex)
     {
+        struct Notify
+        {
+            void* tree;
+            ~Notify() { if (OnlineAlliances::Callbacks().treeChanged) OnlineAlliances::Callbacks().treeChanged(tree); }
+        } notify{ object };
         originalAddTreeTeam(object, team, savedIndex);
         if (!team || !team[2] || !memchr(team + 2, 0, 17)) return;
         BYTE* tree = static_cast<BYTE*>(object);
@@ -338,7 +345,8 @@ namespace
 
     int __fastcall SaveGame(void* object, void*, const char* filename)
     {
-        const auto caller = static_cast<BYTE*>(_ReturnAddress());
+        const auto caller = static_cast<const BYTE*>(Alliances::WriterCaller() ?
+            Alliances::WriterCaller() : _ReturnAddress());
         const bool host = caller == image + HostLaunchCallerRva || caller == image + HostNextRoundCallerRva;
         const bool join = caller == image + JoinLaunchCallerRva || caller == image + JoinNextRoundCallerRva;
         if (object == image + GameRva && (host || join))
@@ -357,10 +365,13 @@ namespace
         const uint32_t host = *reinterpret_cast<uint32_t*>(static_cast<BYTE*>(object) + 0xa8);
         if (host && sender == host && payloadLength >= 4) ColourMaps::JoiningRound(object);
         if (!ColourMaps::ReceiveNetworkPacket(sender, host, packet, payloadLength)) return;
+        auto& alliances = OnlineAlliances::Callbacks();
+        if (alliances.receive && !alliances.receive(object, sender, host, packet, payloadLength, true)) return;
         length = payloadLength + (reliable ? 4 : 0);
         ReceiveStartPacket(sender, host, packet, payloadLength);
         if (IsStartPacket(packet, payloadLength) && payloadLength < NativeStartPacketSize) return;
         originalReceiveRoundPacket(object, sender, packet, length);
+        if (alliances.afterReceive) alliances.afterReceive(object, sender, packet, payloadLength, true);
     }
 
     bool SetHostListMode(BYTE mode)

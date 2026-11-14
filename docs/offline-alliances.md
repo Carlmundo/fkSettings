@@ -29,7 +29,8 @@ and Blue in addition order again.
 The engine extension supplies shared victory and in-game colour behaviour. The
 frontend awards a round win to every member of the winning alliance, including
 teammates eliminated before the round ended.
-Online alliance selection and transmission are outside this feature's scope.
+Online selection, ownership and synchronisation are described in
+[online alliances](online-alliances.md).
 
 ## Launch file
 
@@ -38,12 +39,13 @@ directory (normally `Data`). Its length is exactly seven bytes:
 
 | Offset | Contents |
 | --- | --- |
-| 0 | 1 when this is an offline alliance launch; otherwise 0 |
+| 0 | 1 when this is an alliance launch; otherwise 0 |
 | 1–6 | Each player's colour/alliance number, 1–6, in `game.dat` team-slot order; 0 for an empty slot |
 
-With zero or one team in the roster, all seven bytes are zero. Quick Play and online
-writes also publish seven zeros so a previous offline match cannot supply stale
-alliances. The existing `game.dat` and `extended.dat` formats are unchanged.
+With zero or one team in the roster, all seven bytes are zero. Quick Play and
+other non-alliance writes also publish seven zeros so a previous match cannot
+supply stale alliances. Network launches use their host-approved assignments.
+The existing `game.dat` and `extended.dat` formats are unchanged.
 
 The frontend orders teams before writing `game.dat`. Assignments are matched
 by team name at serialization, so colours remain with their teams, including
@@ -75,20 +77,21 @@ The native swap routine moves the full `0x108`-byte team record and its companio
 pointer together. Colour assignments and scoring context are then serialized in
 that final order. Later rounds keep this order and use the native starting-index
 rotation: `(previous + 1) % teamCount`, at game-object offset `0xAB4` / file offset
-`0xA98`. Games with distinct colours, Quick Play and online play retain the
-original shuffle.
+`0xA98`. Games with distinct colours and Quick Play retain the original shuffle.
+[Online alliances](online-alliances.md) use the same interleaving.
 
 The hook at `0x0042BCFC` runs the native shuffle first, then interleaves the groups
-only inside the first local launch handler. It validates all names and colours
+inside the first local launch handler or the validated online first-round call
+sites. It validates all names and colours
 before consuming extra random values or moving teams. Colour shuffling uses the
 frontend's seeded CRT random generator at `0x00496770`; complete teams are swapped
 by `0x0042BD78`. An invalid mapping retains the original shuffled order.
 
 ## Round results
 
-After a successful local `game.dat` write, the frontend keeps the names,
+After a successful alliance `game.dat` write, the frontend keeps the names,
 alliance numbers and pre-round scores actually serialized for that match. Subsequent roster edits
-cannot change that scoring context. Every non-alliance, Quick Play or online
+cannot change that scoring context. Every non-alliance or Quick Play
 launch clears it, as does a failed launch-data write.
 
 The native result reader at `0x0041E9BC` (thunk `0x0040254A`) increments only
@@ -149,19 +152,26 @@ limit at `0xC` and scores at `0x60 + team * 0x644`.
 
 ## Integration
 
-`OfflineAlliances.cpp` validates the supported x86 frontend (PE timestamp
-`0x3587BE19`) and all signatures before creating these hooks:
+`Alliances.cpp/.h` contains the shared palette, team model, turn ordering, file
+writer, frozen scoring context and results hooks used by both modes.
+`OfflineAlliances.cpp/.h` contains the local roster controls and local launch
+scope. `OnlineAlliances.cpp/.h` contains lobby controls, permissions and network
+synchronisation. Local controls register launch-data and shuffle callbacks with
+the shared module; online integration continues through its existing callbacks.
 
-| RVA | Purpose |
-| --- | --- |
-| `0x78F7B` | Local Game controls refresh; attach the roster subclass |
-| `0x79343` | First offline game; scope alliance serialization to this local launch |
-| `0x77DA2` | Subsequent offline rounds; retain the match's assignments |
-| `0x2BCFC` | Interleave shuffled alliance colours on the first offline round |
-| `0x2BA3` | Shared jump thunk to the game writer; write the seven-byte sidecar |
-| `0x2DF64` | Award the winning alliance in local round results |
-| `0x1E9BC` | Update live game scores for all winning allies before result display and victory checks |
-| `0x7D917` | Omit winner strings 338 and 340 when multiple teams reach the victory limit |
+Both hook-owning modules validate the supported x86 frontend (PE timestamp
+`0x3587BE19`) and their signatures before installing their respective hooks:
+
+| RVA | Module | Purpose |
+| --- | --- | --- |
+| `0x78F7B` | OfflineAlliances | Local Game controls refresh; attach the roster subclass |
+| `0x79343` | OfflineAlliances | First offline game; scope alliance serialization to this local launch |
+| `0x77DA2` | OfflineAlliances | Subsequent offline rounds; retain the match's assignments |
+| `0x2BCFC` | Alliances | Interleave shuffled alliance colours on the first local or online round |
+| `0x2BA3` | Alliances | Shared jump thunk to the game writer; write the seven-byte sidecar |
+| `0x2DF64` | Alliances | Award the winning alliance in round results |
+| `0x1E9BC` | Alliances | Update live game scores for all winning allies before result display and victory checks |
+| `0x7D917` | Alliances | Omit winner strings 338 and 340 when multiple teams reach the victory limit |
 
 The list subclass follows native item insertions and deletions, using each row's
 saved-team index to preserve addition order across sorting. State images supply

@@ -27,6 +27,10 @@ Purple and Teal; right-click to cycle backwards. Colour changes use mouse clicks
 only. Teams sharing a colour are allies.
 Launches write a seven-byte `Data/teams.dat` for the engine extension.
 See [offline alliance behaviour and file format](docs/offline-alliances.md).
+Online lobbies also support alliances: the host can change every team's colour,
+and players can change their own teams. Choices are synchronised for late joins
+and every round, including turn order and shared frontend victories. All players
+must use the latest version. See [online alliances](docs/online-alliances.md).
 
 Game options (dialog 154) now includes **Extended Options** with 24 checkboxes
 and three numeric trackbars. Values persist in an appended `.opt` extension, transfer with the

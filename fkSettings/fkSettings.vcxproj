@@ -178,6 +178,8 @@
     <ClInclude Include="NetworkTeams.h" />
     <ClInclude Include="GameSetup.h" />
     <ClInclude Include="OfflineAlliances.h" />
+    <ClInclude Include="Alliances.h" />
+    <ClInclude Include="OnlineAlliances.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
@@ -193,6 +195,8 @@
     <ClCompile Include="NetworkTeams.cpp" />
     <ClCompile Include="GameSetup.cpp" />
     <ClCompile Include="OfflineAlliances.cpp" />
+    <ClCompile Include="Alliances.cpp" />
+    <ClCompile Include="OnlineAlliances.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="fkSettings.rc" />

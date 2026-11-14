@@ -653,8 +653,8 @@ static void FrontendHookTests(const char* path)
     memcpy(before.data(), frontend + 0x975b0, before.size());
     std::array<BYTE, 9> defaultBefore{};
     memcpy(defaultBefore.data(), frontend + 0x1e698, defaultBefore.size());
-    const std::array<size_t, 3> networkSites{ 0x1e29a, 0x1e3c4, 0x39e41 };
-    std::array<std::array<BYTE, 10>, 3> networkBefore{};
+    const std::array<size_t, 4> networkSites{ 0x1e29a, 0x1e3c4, 0x39e41, 0x3975e };
+    std::array<std::array<BYTE, 10>, 4> networkBefore{};
     for (size_t i = 0; i < networkSites.size(); ++i)
         memcpy(networkBefore[i].data(), frontend + networkSites[i], networkBefore[i].size());
     for (size_t corrupted = 0; corrupted < networkSites.size(); ++corrupted)
@@ -668,7 +668,7 @@ static void FrontendHookTests(const char* path)
         for (size_t i = 0; i < networkSites.size(); ++i)
             Check(!memcmp(networkBefore[i].data(), frontend + networkSites[i], networkBefore[i].size()), "network signature rejection leaves every shared hook site unchanged");
     }
-    Check((SW::InstallInImage(frontend) && FN::InstallInImage(frontend)), "seven weapon hooks and three shared network hooks install against supplied frontend");
+    Check((SW::InstallInImage(frontend) && FN::InstallInImage(frontend)), "seven weapon hooks and four shared network hooks install against supplied frontend");
     for (size_t i = 0; i < networkSites.size(); ++i)
         Check(memcmp(networkBefore[i].data(), frontend + networkSites[i], networkBefore[i].size()) != 0,
             "network send/receive detour enabled");
@@ -685,7 +685,7 @@ static void FrontendHookTests(const char* path)
     UnmapViewOfFile(frontend);
     CloseHandle(mapping);
     CloseHandle(file);
-    puts("PASS: all ten MinHook detours install and restore on a non-running mapping of the supplied frontend");
+    puts("PASS: all eleven MinHook detours install and restore on a non-running mapping of the supplied frontend");
 }
 
 int main(int argc, char** argv)

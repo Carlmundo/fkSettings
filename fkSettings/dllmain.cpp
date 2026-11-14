@@ -36,6 +36,8 @@ extern "C" { int __afxForceUSRDLL; }
 #include "NetworkTeams.h"
 #include "GameSetup.h"
 #include "OfflineAlliances.h"
+#include "Alliances.h"
+#include "OnlineAlliances.h"
 #include "ExtendedOptions.h"
 #include "ColourMaps.h"
 #include "WaterFix.h"
@@ -867,7 +869,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         if (!GameSetup::Install())
             OutputDebugStringA("fkSettings: 48-worm game setup is unavailable.\n");
 
-        if (!OfflineAlliances::Install())
+        const bool allianceHooks = Alliances::Install();
+        const bool offlineAllianceHooks = allianceHooks && OfflineAlliances::Install();
+        if (!offlineAllianceHooks)
             OutputDebugStringA("fkSettings: Offline alliances are unavailable.\n");
 
         const bool weaponHooks = SecretWeapons::Install();
@@ -887,8 +891,11 @@ BOOL APIENTRY DllMain( HMODULE hModule,
         }
 
         ColourMaps::ReportNetworkHooks(lobbyNetworkHooks, roundNetworkHooks);
-        if (!ColourMaps::Install())
+        const bool colourMapHooks = ColourMaps::Install();
+        if (!colourMapHooks)
             OutputDebugStringA("fkSettings: Colour map importer is unavailable.\n");
+        if (offlineAllianceHooks && lobbyNetworkHooks && roundNetworkHooks && colourMapHooks && !OnlineAlliances::Install())
+            OutputDebugStringA("fkSettings: Online alliances are unavailable.\n");
 
         Initialized = true;
 
