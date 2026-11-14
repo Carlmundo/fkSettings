@@ -668,6 +668,14 @@ static void FrontendHookTests(const char* path)
         for (size_t i = 0; i < networkSites.size(); ++i)
             Check(!memcmp(networkBefore[i].data(), frontend + networkSites[i], networkBefore[i].size()), "network signature rejection leaves every shared hook site unchanged");
     }
+    DWORD readyProtection;
+    Check(VirtualProtect(frontend + 0x1e32f, 1, PAGE_EXECUTE_READWRITE, &readyProtection), "prepare joining sender signature check");
+    const BYTE readyByte = frontend[0x1e32f]; frontend[0x1e32f] = 0x90;
+    Check(!FN::InstallInImage(frontend), "shared network module validates the joining-player sender before enabling requests");
+    frontend[0x1e32f] = readyByte;
+    VirtualProtect(frontend + 0x1e32f, 1, readyProtection, &readyProtection);
+    for (size_t i = 0; i < networkSites.size(); ++i)
+        Check(!memcmp(networkBefore[i].data(), frontend + networkSites[i], networkBefore[i].size()), "joining sender rejection leaves all shared hook sites unchanged");
     Check((SW::InstallInImage(frontend) && FN::InstallInImage(frontend)), "seven weapon hooks and four shared network hooks install against supplied frontend");
     for (size_t i = 0; i < networkSites.size(); ++i)
         Check(memcmp(networkBefore[i].data(), frontend + networkSites[i], networkBefore[i].size()) != 0,

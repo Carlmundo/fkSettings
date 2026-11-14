@@ -77,7 +77,7 @@ namespace
             const auto& team = state.teams[index];
             if (index >= state.count) { if (memcmp(&team, &empty, sizeof(team))) return false; continue; }
             if (!team.name[0] || !memchr(team.name, 0, sizeof(team.name)) || !team.owner ||
-                (state.count < 2 ? team.colour != 0 : team.colour < 1 || team.colour > 6)) return false;
+                team.colour < 1 || team.colour > 6) return false;
             for (size_t previous = 0; previous < index; ++previous)
                 if (!strcmp(team.name, state.teams[previous].name)) return false;
         }
@@ -89,6 +89,21 @@ namespace
         for (const auto& team : teams) if (team.colour >= 1 && team.colour <= 6) ++counts[team.colour - 1];
         return static_cast<BYTE>(std::min_element(counts.begin(), counts.end()) - counts.begin() + 1);
     }
+    uint32_t TeamOwner(const BYTE* game, BYTE controller)
+    {
+        if (controller >= 13 || !Dword(game + 0x10d4)) return 0;
+        // Native ownership (0x428688/0x42822B) resolves the controller's
+        // address through the separate lobby player table, never by index.
+        const char* address = reinterpret_cast<const char*>(game + 0x13a + controller * 66);
+        if (!*address || !memchr(address, 0, 49)) return 0;
+        for (int player = 0; player < 14; ++player)
+        {
+            const char* candidate = reinterpret_cast<const char*>(game + 0xd01 + player * 66);
+            if (*candidate && memchr(candidate, 0, 49) && !strcmp(address, candidate))
+                return Dword(game + 0x108c + player * 4);
+        }
+        return 0;
+    }
     bool SyncHost()
     {
         if (!image || !session.hosting) return false;
@@ -99,12 +114,11 @@ namespace
             const BYTE* record = game + 0x484 + slot * 0x108;
             const char* name = reinterpret_cast<const char*>(record + 2);
             if (!*name || !memchr(name, 0, 17)) continue;
-            const uint32_t owner = record[0] < 14 ? Dword(game + 0x108c + record[0] * 4) : 0;
+            const uint32_t owner = TeamOwner(game, record[0]);
             if (!owner || std::any_of(current.begin(), current.end(), [&](const Team& team) { return team.name == name; })) continue;
             current.push_back({ name, 0, owner });
         }
         const auto before = session.teams;
-        const bool wasEnabled = before.size() >= 2;
         session.teams.erase(std::remove_if(session.teams.begin(), session.teams.end(), [&](const Team& team) {
             return std::none_of(current.begin(), current.end(), [&](const Team& item) { return team.name == item.name; });
         }), session.teams.end());
@@ -112,11 +126,8 @@ namespace
         {
             const auto found = std::find_if(session.teams.begin(), session.teams.end(), [&](const Team& item) { return team.name == item.name; });
             if (found != session.teams.end()) found->owner = team.owner;
-            else session.teams.push_back({ team.name, wasEnabled ? LeastUsed(session.teams) : BYTE(0), team.owner });
+            else session.teams.push_back({ team.name, LeastUsed(session.teams), team.owner });
         }
-        if (!wasEnabled || session.teams.size() < 2)
-            for (size_t index = 0; index < session.teams.size(); ++index)
-                session.teams[index].colour = session.teams.size() >= 2 ? static_cast<BYTE>(index + 1) : 0;
         const bool changed = before.size() != session.teams.size() || !std::equal(before.begin(), before.end(), session.teams.begin(), SameTeam);
         if (changed || !session.revision) { if (!++session.revision) ++session.revision; }
         return changed;
@@ -174,7 +185,7 @@ namespace
     {
         if (!session.hosting || session.locked || !sender || (direction != 1 && direction != -1)) return false;
         SyncHost();
-        if (session.teams.size() < 2) return false;
+        if (session.teams.empty()) return false;
         const auto team = std::find_if(session.teams.begin(), session.teams.end(), [&](const Team& item) { return item.name == name; });
         if (team == session.teams.end() || (sender != LocalId() && sender != team->owner)) return false;
         team->colour = static_cast<BYTE>((team->colour + (direction > 0 ? 0 : 4)) % 6 + 1);
@@ -185,13 +196,13 @@ namespace
     void Click(const char* name, int direction)
     {
         if (session.hosting) { Change(LocalId(), name, direction); return; }
-        if (!Callbacks().send || !session.host || session.locked || !LocalId()) return;
+        if (!Callbacks().sendToHost || !session.host || session.locked || !LocalId()) return;
         const auto team = std::find_if(session.teams.begin(), session.teams.end(), [&](const Team& item) { return item.name == name; });
         if (team == session.teams.end() || team->owner != LocalId()) return;
         ChangePacket packet{};
         packet.type = ChangeType; packet.version = Protocol; packet.direction = static_cast<signed char>(direction);
         strcpy_s(packet.name, sizeof(packet.name), name);
-        Callbacks().send(image + TransportRva, LocalId(), session.host, false, &packet, sizeof(packet));
+        Callbacks().sendToHost(image + TransportRva, LocalId(), session.host, &packet, sizeof(packet));
     }
     bool UpdateImages(TreeImages& tree)
     {
@@ -229,7 +240,7 @@ namespace
     void PaintTree(TreeImages& tree)
     {
         if (!UpdateImages(tree)) return;
-        TreeView_SetImageList(tree.window, session.teams.size() >= 2 ? tree.images : tree.native, TVSIL_STATE);
+        TreeView_SetImageList(tree.window, !session.teams.empty() ? tree.images : tree.native, TVSIL_STATE);
         for (int slot = 0; slot < 6; ++slot)
         {
             TVITEMA item{};
@@ -240,7 +251,7 @@ namespace
             if (!memchr(name, 0, 17)) continue;
             const auto team = std::find_if(session.teams.begin(), session.teams.end(), [&](const Team& entry) { return entry.name == name; });
             item.stateMask = TVIS_STATEIMAGEMASK;
-            item.state = INDEXTOSTATEIMAGEMASK(session.teams.size() >= 2 && team != session.teams.end() ? team->colour : 0);
+            item.state = INDEXTOSTATEIMAGEMASK(team != session.teams.end() ? team->colour : 0);
             SendMessageA(tree.window, TVM_SETITEMA, 0, reinterpret_cast<LPARAM>(&item));
         }
         InvalidateRect(tree.window, nullptr, TRUE);
@@ -256,7 +267,7 @@ namespace
         auto tree = reinterpret_cast<TreeImages*>(reference);
         const bool left = message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK || message == WM_LBUTTONUP;
         const bool right = message == WM_RBUTTONDOWN || message == WM_RBUTTONDBLCLK || message == WM_RBUTTONUP;
-        if (session.tree == tree->tree && session.teams.size() >= 2 && (left || right))
+        if (session.tree == tree->tree && !session.teams.empty() && (left || right))
         {
             TVHITTESTINFO hit{}; hit.pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
             TreeView_HitTest(window, &hit);

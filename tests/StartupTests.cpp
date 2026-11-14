@@ -101,7 +101,8 @@ int main(int argc, char** argv)
             QueryPerformanceCounter(&beforeColourMaps);
             Check(ColourMaps::InstallInImage(image), "install colour map hooks");
             Check(OnlineAlliances::InstallInImage(image), "install online alliance integration after shared hooks");
-            Check(OnlineAlliances::Callbacks().extend && OnlineAlliances::Callbacks().launch && OnlineAlliances::Callbacks().hostReceive,
+            Check(OnlineAlliances::Callbacks().extend && OnlineAlliances::Callbacks().launch && OnlineAlliances::Callbacks().hostReceive &&
+                OnlineAlliances::Callbacks().sendToHost,
                 "activate online alliance packet, launch and ownership handlers");
             QueryPerformanceCounter(&afterHooks);
             Check(image[0x975b0] == 0xe9 && image[0x97780] == 0xe9 && image[NetworkTeams::WriteGameRva] == 0xe9,

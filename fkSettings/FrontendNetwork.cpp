@@ -43,6 +43,12 @@ namespace
         if (broadcast) originalSendToAll(object, source, packet, length);
         else originalSendToPlayer(object, source, target, packet, length);
     }
+    void SendHostPacket(void* object, uint32_t source, uint32_t target, const void* packet, uint32_t length)
+    {
+        // The joining frontend's DirectPlay object is different from the host's
+        // targeted-send object. Keep ColourMaps' existing ready-channel hook.
+        reinterpret_cast<SendToPlayer>(image + 0x1e32f)(object, source, target, packet, length);
+    }
     void SendPlayerPacket(void* object, uint32_t source, uint32_t target, const void* packet, uint32_t length)
     {
         std::vector<BYTE> alliances;
@@ -174,6 +180,7 @@ bool InstallInImage(BYTE* frontendImage)
     for (const auto& hook : hooks)
         if (memcmp(image + hook.rva, hook.signature, hook.signatureLength) != 0)
             return false;
+    if (memcmp(image + 0x1e32f, "\x55\x8b\xec\x83\xec\x0c\x89\x4d\xf4", 9)) return false;
     size_t created = 0;
     for (const auto& hook : hooks)
     {
@@ -198,7 +205,11 @@ bool InstallInImage(BYTE* frontendImage)
             MH_DisableHook(image + hooks[i].rva);
             MH_RemoveHook(image + hooks[i].rva);
         }
-    if (success) OnlineAlliances::Callbacks().send = SendFinalPacket;
+    if (success)
+    {
+        OnlineAlliances::Callbacks().send = SendFinalPacket;
+        OnlineAlliances::Callbacks().sendToHost = SendHostPacket;
+    }
     return success;
 }
 }

@@ -35,8 +35,9 @@ The available-team list initializer takes a filter mode: 0 shows human teams,
 changes from 0 to 1. The joining and local-game dialogs retain their native modes.
 
 In the lobby, each selected team belongs to a network player. Its controller byte
-is that player's index, which the native add/remove, team-limit, and ownership
-code uses to index player records. Replacing it with an AI controller while the
+indexes the in-game owner/address records. Native ownership resolves that address
+against the separate lobby player/DPID table; the two indices can differ.
+Native add/remove and team-limit code also use the controller. Replacing it with an AI controller while the
 lobby is open would break those operations.
 
 The game engine already represents computer controllers as negative skill levels

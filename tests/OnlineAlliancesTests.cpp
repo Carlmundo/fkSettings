@@ -17,6 +17,7 @@ namespace SW = SecretWeapons;
 
 static const char* OnlineNames[] = { "Host human", "Host CPU", "Alice one", "Alice two", "Bob one", "Bob two" };
 static constexpr uint32_t HostId = 11, AliceId = 22, BobId = 33;
+static const char* OnlineAddresses[] = { "host.address", "alice.address", "bob.address" };
 static std::vector<BYTE> onlineSent, onlineSerialized;
 static uint32_t onlineSource = 0, onlineTarget = 0, onlineNativeLength = 0;
 static bool onlineBroadcast = false;
@@ -31,6 +32,8 @@ static void __fastcall OnlineSendPlayer(void* object, void*, uint32_t source, ui
 { OnlineSend(object, source, target, false, packet, length); }
 static void __fastcall OnlineSendAll(void* object, void*, uint32_t source, const void* packet, uint32_t length)
 { OnlineSend(object, source, 0, true, packet, length); }
+static void OnlineSendHost(void* object, uint32_t source, uint32_t target, const void* packet, uint32_t length)
+{ OnlineSend(object, source, target, false, packet, length); }
 static int __fastcall OnlineWriter(void* object, void*, const char*)
 {
     const BYTE* data = static_cast<const BYTE*>(object) + 0x1c;
@@ -53,8 +56,22 @@ static void FillOnlineGame()
         strcpy_s(reinterpret_cast<char*>(record + 2), 17, OnlineNames[slot]);
         *reinterpret_cast<int*>(game + 4 + slot * 4) = slot == 1 ? 7 : -1;
     }
-    const uint32_t players[] = { HostId, AliceId, BobId };
-    for (int index = 0; index < 3; ++index) memcpy(game + 0x108c + index * 4, &players[index], 4);
+    // Team controllers index the in-game owner/address list. Lobby player/DPID
+    // slots are independent and can have a different order or empty slots.
+    game[0x128] = 3;
+    for (int index = 0; index < 3; ++index)
+    {
+        strcpy_s(reinterpret_cast<char*>(game + 0x129 + index * 66), 17, index == 0 ? "Host" : index == 1 ? "Alice" : "Bob");
+        strcpy_s(reinterpret_cast<char*>(game + 0x13a + index * 66), 49, OnlineAddresses[index]);
+    }
+    const uint32_t players[] = { BobId, HostId, AliceId };
+    const int owners[] = { 2, 0, 1 };
+    for (int index = 0; index < 3; ++index)
+    {
+        memcpy(game + 0x108c + index * 4, &players[index], 4);
+        strcpy_s(reinterpret_cast<char*>(game + 0xcf0 + index * 66), 17, owners[index] == 0 ? "Host" : owners[index] == 1 ? "Alice" : "Bob");
+        strcpy_s(reinterpret_cast<char*>(game + 0xd01 + index * 66), 49, OnlineAddresses[owners[index]]);
+    }
     *reinterpret_cast<int*>(game + 0x10d4) = 3;
     const int skill = 50;
     memcpy(ON::image + NT::SavedTeamsRva + 7 * NT::SavedTeamStride, &skill, 4);
@@ -113,6 +130,7 @@ static void __fastcall OnlineJoinReceiveFixture(void* object, void*, uint32_t se
         const int slot = *reinterpret_cast<int*>(OnlineGame() + 0x10d4);
         memcpy(OnlineGame() + 0x108c + slot * 4, bytes + 4, 4);
         memcpy(OnlineGame() + 0xcf0 + slot * 66, bytes + 9, 17);
+        memcpy(OnlineGame() + 0xd01 + slot * 66, bytes + 26, 49);
         ++*reinterpret_cast<int*>(OnlineGame() + 0x10d4);
     }
     else if (type == 10)
@@ -124,7 +142,11 @@ static void __fastcall OnlineJoinReceiveFixture(void* object, void*, uint32_t se
         int player = 0;
         while (player < 14 && ON::Dword(OnlineGame() + 0x108c + player * 4) != owner) ++player;
         Check(player < 14, "native team update resolves its previously received player");
-        team[0] = static_cast<BYTE>(player); memcpy(team + 2, bytes + 8, 17);
+        const char* address = reinterpret_cast<const char*>(OnlineGame() + 0xd01 + player * 66);
+        int controller = 0;
+        while (controller < 13 && strcmp(reinterpret_cast<const char*>(OnlineGame() + 0x13a + controller * 66), address)) ++controller;
+        Check(controller < 13, "native team controller resolves the player's address independently of their lobby slot");
+        team[0] = static_cast<BYTE>(controller); memcpy(team + 2, bytes + 8, 17);
         ++OnlineGame()[0x483];
     }
     else OnlineReceiveNative(object, nullptr, sender, packet, length);
@@ -150,6 +172,7 @@ static void OnlineJoinSequenceTests(BYTE* image)
                 for (int slot = hostTeams; slot < 6; ++slot) memset(OnlineGame() + 0x484 + slot * 0x108, 0, 0x108);
                 memset(OnlineGame() + 0x108c, 0, 56); memcpy(OnlineGame() + 0x108c, &HostId, 4);
                 memset(OnlineGame() + 0xcf0, 0, 924); strcpy_s(reinterpret_cast<char*>(OnlineGame() + 0xcf0), 17, "Host");
+                strcpy_s(reinterpret_cast<char*>(OnlineGame() + 0xd01), 49, OnlineAddresses[0]);
                 *reinterpret_cast<int*>(OnlineGame() + 0x10d4) = 1;
                 ON::Lobby(hostLobby.data(), true, false, true);
                 const auto native = NativeOnlinePacket(5);
@@ -172,13 +195,14 @@ static void OnlineJoinSequenceTests(BYTE* image)
                 std::array<BYTE, 76> player{};
                 const uint32_t playerType = 6; memcpy(player.data(), &playerType, 4); memcpy(player.data() + 4, &BobId, 4);
                 strcpy_s(reinterpret_cast<char*>(player.data() + 9), 17, "Third player");
+                strcpy_s(reinterpret_cast<char*>(player.data() + 26), 49, OnlineAddresses[2]);
                 receive(joinLobby.data(), HostId, player.data(), static_cast<uint32_t>(player.size()) + reliable * 4);
                 Check(onlineReceives == before + 2 && ON::Dword(OnlineGame() + 0x1090) == BobId &&
                     !strcmp(reinterpret_cast<const char*>(OnlineGame() + 0xcf0 + 66), "Third player"), "third player's name update reaches native dispatch");
                 std::array<BYTE, 0x10d8> clientGame{}; memcpy(clientGame.data(), OnlineGame(), clientGame.size());
                 const auto clientSession = ON::session;
                 BYTE* added = OnlineGame() + 0x484 + hostTeams * 0x108;
-                added[0] = 1; strcpy_s(reinterpret_cast<char*>(added + 2), 17, "Third team"); ++OnlineGame()[0x483];
+                added[0] = 2; strcpy_s(reinterpret_cast<char*>(added + 2), 17, "Third team"); ++OnlineGame()[0x483];
                 ON::Lobby(hostLobby.data(), true, false, true); LocalPlayer(HostId);
                 auto team = NativeOnlinePacket(10); memcpy(team.data() + 4, &BobId, 4);
                 strcpy_s(reinterpret_cast<char*>(team.data() + 8), 17, "Third team");
@@ -197,6 +221,7 @@ static void OnlineJoinSequenceTests(BYTE* image)
     onlineJoinResult = 1;
     Check(MH_Uninitialize() == MH_OK, "restore native joining lifecycle and packet hooks");
     FN::originalReceivePacket = reinterpret_cast<FN::ReceivePacket>(OnlineReceiveNative);
+    ON::Callbacks().sendToHost = OnlineSendHost;
     puts("PASS: initial snapshots and third-player teams survive stale host IDs, empty/human/CPU host rosters and repeated joins on both transports");
 }
 
@@ -225,15 +250,29 @@ static void OnlineModelTests()
     BYTE* game = OnlineGame();
     for (int slot = 1; slot < 6; ++slot) memset(game + 0x484 + slot * 0x108, 0, 0x108);
     game[0x483] = 1;
-    Check(ON::SyncHost() && ON::session.teams.size() == 1 && ON::session.teams[0].colour == 0,
-        "one remaining online team disables colours");
+    Check(ON::SyncHost() && ON::session.teams.size() == 1 && ON::session.teams[0].colour == 1,
+        "one remaining online team retains its colour");
+    Check(ON::Change(HostId, OnlineNames[0], -1) && ON::session.teams[0].colour == 6 && ON::Valid(ON::CurrentState()),
+        "a lone online team can choose Teal and publish a valid colour state");
     BYTE* added = game + 0x484 + 0x108;
     added[0] = 1; strcpy_s(reinterpret_cast<char*>(added + 2), 17, OnlineNames[2]); game[0x483] = 2;
-    Check(ON::SyncHost() && ON::session.teams[0].colour == 1 && ON::session.teams[1].colour == 2,
-        "adding another online team resets Red and Blue");
+    Check(ON::SyncHost() && ON::session.teams[0].colour == 6 && ON::session.teams[1].colour == 1,
+        "a second online team gets least-used Red without resetting the first team's Teal");
+    ON::session.teams[0].colour = 1;
     ON::session.teams[1].colour = 4;
     added += 0x108; added[0] = 2; strcpy_s(reinterpret_cast<char*>(added + 2), 17, OnlineNames[4]); game[0x483] = 3;
     Check(ON::SyncHost() && ON::session.teams[2].colour == 2, "online Red and Yellow choose unused Blue for a new team");
+    memset(game + 0x484, 0, 6 * 0x108); game[0x483] = 0;
+    Check(ON::SyncHost() && ON::session.teams.empty() && ON::Valid(ON::CurrentState()), "empty online roster clears its assignments");
+    strcpy_s(reinterpret_cast<char*>(game + 0x486), 17, OnlineNames[0]); game[0x483] = 1;
+    Check(ON::SyncHost() && ON::session.teams.size() == 1 && ON::session.teams[0].colour == 1,
+        "the first online team receives Red immediately");
+    auto one = ON::CurrentState();
+    std::array<BYTE, 7> sidecar{};
+    Check(ON::ColoursForGame(game, one, sidecar) && sidecar == std::array<BYTE, 7>{},
+        "one-team lobby colours leave the existing inactive launch file unchanged");
+    one.teams[0].colour = 0;
+    Check(!ON::Valid(one), "a populated online team must carry a visible colour even when alone");
 }
 
 static void OnlinePacketTests()
@@ -313,6 +352,95 @@ static void OnlinePacketTests()
         NT::ReceiveNextRoundPacket(results.data(), nullptr, HostId, start.data(), static_cast<uint32_t>(start.size()) + reliable * 4);
         Check(onlineReceives == good, "non-host and outdated starts cannot reach the engine launch handler");
     }
+}
+
+static void* onlineRequestChannel = nullptr;
+static int __fastcall OnlineCaptureClientSend(void* object, void*, uint32_t source, uint32_t target, const void* packet, uint32_t length)
+{
+    onlineRequestChannel = object;
+    OnlineSend(object, source, target, false, packet, length);
+    return 0;
+}
+static void OnlineNativeClientRequests(BYTE* image)
+{
+    FillOnlineGame(); LocalPlayer(HostId);
+    using NativeOwner = int (__thiscall*)(const void*, const char*);
+    const auto nativeOwner = reinterpret_cast<NativeOwner>(image + 0x28688);
+    const uint32_t owners[] = { HostId, AliceId, BobId };
+    for (int slot = 0; slot < 6; ++slot)
+        Check(nativeOwner(OnlineGame(), OnlineNames[slot]) == static_cast<int>(owners[slot / 2]) &&
+            ON::TeamOwner(OnlineGame(), static_cast<BYTE>(slot / 2)) == owners[slot / 2],
+            "alliance ownership agrees with native ownership when controller and DPID slots differ");
+    // A spectator or departed player can leave holes in the lobby table.
+    memcpy(OnlineGame() + 0xcf0 + 13 * 66, OnlineGame() + 0xcf0 + 2 * 66, 66);
+    memset(OnlineGame() + 0xcf0 + 2 * 66, 0, 66);
+    memcpy(OnlineGame() + 0x108c + 13 * 4, &AliceId, 4);
+    memset(OnlineGame() + 0x108c + 2 * 4, 0, 4);
+    Check(nativeOwner(OnlineGame(), OnlineNames[2]) == AliceId && ON::TeamOwner(OnlineGame(), 1) == AliceId,
+        "ownership resolves a player in slot thirteen despite earlier empty player slots");
+    Check(!ON::TeamOwner(OnlineGame(), 13) && !ON::TeamOwner(OnlineGame(), 255), "invalid controllers have no alliance owner");
+    memset(OnlineGame() + 0x13a + 66, 'X', 49);
+    Check(!ON::TeamOwner(OnlineGame(), 1), "unterminated owner addresses cannot authorize changes");
+    FillOnlineGame();
+    memset(OnlineGame() + 0xd01 + 2 * 66, 'X', 49);
+    Check(!ON::TeamOwner(OnlineGame(), 1), "unterminated player addresses cannot authorize changes");
+    FillOnlineGame();
+
+    Check(MH_Initialize() == MH_OK && FN::InstallInImage(image), "install real client request send callbacks");
+    const auto previousReady = CM::originalSendReady;
+    Check(MH_CreateHook(image + 0x1263f, reinterpret_cast<void*>(OnlineCaptureClientSend), nullptr) == MH_OK &&
+        MH_CreateHook(image + 0x1266e, reinterpret_cast<void*>(OnlineCaptureClientSend), nullptr) == MH_OK &&
+        MH_CreateHook(image + 0x1e32f, reinterpret_cast<void*>(CM::SendReady), reinterpret_cast<void**>(&CM::originalSendReady)) == MH_OK,
+        "capture native raw/reliable sends beneath the existing ready-channel hook");
+    Check(MH_EnableHook(image + 0x1263f) == MH_OK && MH_EnableHook(image + 0x1266e) == MH_OK &&
+        MH_EnableHook(image + 0x1e32f) == MH_OK, "activate native request transport fixtures");
+    ON::Callbacks().send = OnlineSend;
+    std::vector<BYTE> hostLobby(0x5000), clientLobby(0x5000);
+    memcpy(clientLobby.data() + 0x163c, &HostId, 4);
+    ON::Lobby(hostLobby.data(), true, false, true);
+    auto hostSession = ON::session;
+    for (uint32_t reliable : { 0u, 1u })
+        for (uint32_t client : { AliceId, BobId })
+            for (size_t team = 2; team < 6; ++team)
+            {
+                if (hostSession.teams[team].owner != client) continue;
+                for (int direction : { 1, -1 })
+                {
+                    ON::session = hostSession; const auto state = ON::CurrentState();
+                    ON::session = ON::Session{}; LocalPlayer(client);
+                    ON::Lobby(clientLobby.data(), false, false, true);
+                    Check(ON::Adopt(state, HostId), "client receives correctly resolved ownership before clicking");
+                    const auto clientSession = ON::session;
+                    memcpy(image + 0x188b14, &reliable, 4);
+                    const int sends = onlineSends;
+                    onlineRequestChannel = nullptr;
+                    ON::Click(OnlineNames[team], direction);
+                    Check(onlineSends == sends + 1 && onlineRequestChannel == image + ON::TransportRva + 0x128c8 &&
+                        onlineSource == client && onlineTarget == HostId && onlineSent.size() == sizeof(ON::ChangePacket),
+                        "client colour request uses the native joining channel on TCP/IP and IPX");
+                    const auto request = onlineSent;
+                    ON::session = hostSession; LocalPlayer(HostId);
+                    CM::HostReceive(hostLobby.data(), nullptr, client, request.data(), static_cast<uint32_t>(request.size()) + reliable * 4);
+                    const BYTE expected = static_cast<BYTE>((state.teams[team].colour + (direction > 0 ? 0 : 4)) % 6 + 1);
+                    Check(ON::session.teams[team].colour == expected && onlineBroadcast && onlineSent.size() == sizeof(ON::StatePacket),
+                        "host accepts forward and reverse changes for every client-owned team");
+                    hostSession = ON::session;
+                    const auto update = onlineSent;
+                    ON::session = clientSession; LocalPlayer(client);
+                    FN::ReceiveLobbyPacket(clientLobby.data(), nullptr, HostId, update.data(), static_cast<uint32_t>(update.size()) + reliable * 4);
+                    Check(ON::session.teams[team].colour == expected, "host confirmation updates the requesting player's square");
+                    const int confirmed = onlineSends;
+                    ON::Click(OnlineNames[0], direction);
+                    Check(onlineSends == confirmed, "native client send path still blocks changes to another player's team");
+                }
+            }
+    Check(MH_Uninitialize() == MH_OK, "restore native request transport routines");
+    CM::originalSendReady = previousReady;
+    ON::Callbacks().sendToHost = OnlineSendHost;
+    FN::originalSendToPlayer = reinterpret_cast<FN::SendToPlayer>(OnlineSendPlayer);
+    FN::originalSendToAll = reinterpret_cast<FN::SendToAll>(OnlineSendAll);
+    FN::originalReceivePacket = reinterpret_cast<FN::ReceivePacket>(OnlineReceiveNative);
+    puts("PASS: native ownership, reordered/sparse player tables, both clients' teams and native joining-channel requests on both transports");
 }
 
 static void NativeOnlineCall(BYTE* image, size_t rva, const char* filename)
@@ -635,6 +763,34 @@ static void OnlineTreeTests(const char* path)
             Check((item.state & TVIS_STATEIMAGEMASK) == INDEXTOSTATEIMAGEMASK(3) && ON::session.teams[2].colour == 3,
                 "online colours remain mouse-only");
         }
+        // Reduce the actual tree to one row to check the online-only activation
+        // threshold, its hit target and ownership with the same native control.
+        for (int slot = 1; slot < 6; ++slot)
+        {
+            auto& handle = *reinterpret_cast<HTREEITEM*>(tree + 0x90 + slot * 4);
+            TreeView_DeleteItem(window, handle); handle = nullptr;
+            memset(tree + 0x40e + slot * 0x108, 0, 17);
+            memset(OnlineGame() + 0x484 + slot * 0x108, 0, 0x108);
+        }
+        OnlineGame()[0x483] = 1;
+        OnlineGame()[0x484] = hosting ? 0 : 1;
+        ON::session = ON::Session{}; ON::session.hosting = true; ON::SyncHost();
+        const auto one = ON::CurrentState();
+        ON::Lobby(lobby.data(), hosting, false, true);
+        if (!hosting) Check(ON::Adopt(one, HostId), "joining player receives a single team's colour");
+        TVITEMA lone{}; lone.mask = TVIF_STATE; lone.stateMask = TVIS_STATEIMAGEMASK;
+        lone.hItem = *reinterpret_cast<HTREEITEM*>(tree + 0x90);
+        Check(SendMessageA(window, TVM_GETITEMA, 0, reinterpret_cast<LPARAM>(&lone)) &&
+            (lone.state & TVIS_STATEIMAGEMASK) == INDEXTOSTATEIMAGEMASK(1) && TreeView_GetImageList(window, TVSIL_STATE) != restore.native,
+            "the first online team has a visible Red square on the host and joining frontend");
+        const POINT square = OnlineSquare(window, lone.hItem);
+        const int sends = onlineSends;
+        OnlineMouse(window, square, false);
+        if (hosting) Check(ON::session.teams[0].colour == 2, "host can advance the only team's colour");
+        else Check(onlineSends == sends + 1 && onlineTarget == HostId, "player can request a colour change for their only team");
+        OnlineMouse(window, square, true);
+        Check(ON::session.teams[0].colour == 1 && (hosting || onlineSends == sends + 2),
+            "single-team reverse clicks use the same host and ownership rules");
         DestroyWindow(parent); DeleteObject(previousFont);
         Check(restore.restored && ON::session.tree == nullptr, "online tree cleanup restores image list and item height");
     }
@@ -771,7 +927,8 @@ int main(int argc, char** argv)
         NT::originalReceiveRoundPacket = reinterpret_cast<NT::ReceiveRoundPacket>(OnlineReceiveRoundNative);
         CM::originalHostReceive = reinterpret_cast<CM::NativeReceive>(OnlineReceiveNative);
         ON::Callbacks().send = OnlineSend;
-        OnlineModelTests(); OnlinePacketTests(); OnlineJoinSequenceTests(image); OnlineLaunchTests(image); OnlineTreeTests(argv[1]); OnlineGuardTests(); OnlineMapTests(argv[1]);
+        ON::Callbacks().sendToHost = OnlineSendHost;
+        OnlineModelTests(); OnlinePacketTests(); OnlineJoinSequenceTests(image); OnlineNativeClientRequests(image); OnlineLaunchTests(image); OnlineTreeTests(argv[1]); OnlineGuardTests(); OnlineMapTests(argv[1]);
         ON::Callbacks() = {}; ON::session = ON::Session{};
         UnmapViewOfFile(image); CloseHandle(mapping); CloseHandle(file);
         puts("PASS: online ownership, colour cycling, least-used assignment, late joins, composed CPU/alliance packets, both transports and subsequent-round dispatch");

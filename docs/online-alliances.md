@@ -1,6 +1,6 @@
 # Online alliances
 
-With at least two teams, a colour square appears beside each team in the online
+From the first team added, a colour square appears beside each team in the online
 Players tree. Left-click cycles forwards; right-click cycles backwards. Space
 does not change colours. The host can edit every team, and each joining player
 can edit their own teams. Human/CPU icons and native selection/removal behaviour
@@ -8,13 +8,21 @@ remain intact. Sizes follow the already DPI-scaled font.
 
 The host assigns Red, Blue, Green, Yellow, Purple and Teal in addition order.
 Later additions receive the least-used colour, with ties resolved in that order.
-Removing a team preserves the others while at least two remain. Zero/one team
-clears assignments; returning to two resets Red and Blue. Names identify teams
+Removing a team preserves the others, including when only one remains. Emptying
+the roster clears assignments; the next first team starts Red. Names identify teams
 independently of tree sorting and shuffled game slots.
 
 Clients send direction requests rather than changing their display optimistically.
-The host checks the sender against the native player-ID/ownership table and
-broadcasts the complete state after an accepted change. Settings freeze at
+Requests use the native joining-player sender at RVA `0x1E32F`, including its
+TCP/IP client channel at transport offset `0x128C8`. The host's targeted sender
+uses a separate channel at `0x12D50` and is reserved for host traffic.
+The host resolves each team's controller through the address at game offset
+`0x13A + controller * 66`, matches that address against the independent lobby
+player records at `0xD01 + player * 66`, and obtains the owner DPID at
+`0x108C + player * 4`. This matches native routines `0x428688`/`0x42822B` even
+when spectators, team addition order or departures make the two lists differ.
+The host checks the sender against that owner and broadcasts the complete state
+after an accepted change. Settings freeze at
 launch. Late joins, team additions/removals and each subsequent start receive the
 current assignments. All participants must use the latest frontend DLL and the
 engine's alliance extension. Missing or invalid alliance start data is rejected.
@@ -58,7 +66,7 @@ this 164-byte state trailer:
 | 148 | 16 | ASCII `ALND` followed by twelve zeros |
 
 Unused records are zero; active names are unique and at most 16 bytes, owner IDs
-are nonzero, and colours are 1–6 (zero with fewer than two teams). The fixed
+are nonzero, and every active team has a colour from 1–6, including a lone team. The fixed
 footer prevents team names being mistaken for a map trailer. Older revisions
 cannot undo newer choices.
 
@@ -93,6 +101,10 @@ MSBuild.exe tests/OnlineAlliancesTests.vcxproj /p:Configuration=Release /p:Platf
 Checks cover ownership, least-used colours, host/client mouse input, every colour
 at 100%/150%/200%, CPU sprites, cleanup, late joins, revisions, composed CPU/map
 packets, both transports, guarded truncated payloads and invalid versions/mappings.
+Ownership is compared with the native resolver using reordered and sparse player
+tables. Client requests run through the actual native send wrappers and existing
+ready-channel hook, checking the joining transport object, both directions for
+each of two clients' teams, host confirmation and rejection of other teams.
 Joining-init and receive hooks are executed with zero, old and poisoned host IDs,
 empty/human/CPU host rosters, a third player's name/team updates, repeated dialog
 reuse and initialization failure.
