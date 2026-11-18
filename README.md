@@ -1,6 +1,9 @@
 # fkSettings for Worms 2
  Extends the frontend interface with an extra Advanced Options button in the Video options tab (runs settings.exe), and launches IPX Address Book (ipxaddress.exe by default) when trying to open the Address Book with IPX mode selected in Network play
 
+The main menu credits open without automatically selecting all the text.
+Manual selection and copying remain available. See [credits behavior and verification](docs/credits.md).
+
 Includes **fkWaterFix**: fixes the Terrain editor's water colour preview when
 the registry's `W2PATH` is `.`. Use the combined `fkSettings.dll` in place of the
 separate `fkWaterFix.dll`. The existing Windows XP Release build configuration

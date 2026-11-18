@@ -21,6 +21,7 @@ Test all of the following with a modern OS and Windows XP.
 - [ ] 48-worm setup — online: Repeat on TCP/IP and IPX with the updated DLL on every computer, using human and CPU teams. Check late joins, remove/re-add teams, and subsequent rounds; all computers should write the same full roster.
 
 - [ ] Main Menu: Confirm the Exit button is correctly positioned, fully visible, and clickable at high DPI.
+- [ ] Credits: Open the main menu's ? button repeatedly. Confirm text starts unselected, scrolling works, and returning focus with Tab/Shift+Tab or Alt+Tab does not select everything. Check manual text selection and copying still work, and other text fields retain normal behavior. Repeat on Windows XP.
 - [ ] Video Options: Confirm the Advanced Options button appears when settings.exe is present, scales correctly, and launches it when clicked.
 - [ ] Music Options: Confirm track names and list rows remain readable, correctly spaced, and selectable at high DPI.
 - [ ] Team Editor: Confirm the Play button previews random samples from the selected soundbank. Click it several times and repeat with different soundbanks.

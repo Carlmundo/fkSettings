@@ -11,6 +11,7 @@
 #include "../fkSettings/OnlineAlliances.cpp"
 #include "../fkSettings/WeaponTabOrder.h"
 #include "../fkSettings/FrontendFocus.cpp"
+#include "../fkSettings/Credits.cpp"
 #include <algorithm>
 #include <cstdio>
 #include <stdexcept>
@@ -83,6 +84,8 @@ int main(int argc, char** argv)
             QueryPerformanceCounter(&afterScans);
             Check(MH_Initialize() == MH_OK, "initialize MinHook");
             Check(FrontendFocus::InstallInImage(image), "install frontend focus hooks");
+            Check(Credits::InstallInImage(image), "install credits selection hook alongside other features");
+            Check(image[Credits::InitializeRva] == 0xe9, "activate credits selection hook");
             Check(image[0x25b80] == 0xe9 && image[0x25ba6] == 0xe9, "activate focus lifecycle hooks");
             Check(Alliances::InstallInImage(image), "install shared alliance hooks before the CPU writer hook");
             Check(OfflineAlliances::InstallInImage(image), "install local alliance controls and launch handlers");
@@ -111,6 +114,7 @@ int main(int argc, char** argv)
             for (const auto site : colourMapSites)
                 Check(image[site] == 0xe9, "all colour map hooks activated");
             Check(MH_Uninitialize() == MH_OK, "remove test hooks");
+            Check(!memcmp(image + Credits::InitializeRva, "\x55\x8b\xec\x6a\xff\x68", 6), "restore native credits initializer");
             Check(!memcmp(image + 0x3975e, originalJoinInit.data(), originalJoinInit.size()), "restore native joining-lobby initialization");
             Check(!memcmp(image + 0x2bcfc, "\x55\x8b\xec\x83\xec\x14\x89\x4d\xec", 9), "restore native team shuffle");
             Check(!memcmp(image + 0x7d917, "\x55\x8b\xec\x6a\xff\x68", 6), "restore native statistics text renderer");

@@ -165,6 +165,7 @@
   <ItemGroup>
     <ClInclude Include="DirectPlayCompat.h" />
     <ClInclude Include="FrontendFocus.h" />
+    <ClInclude Include="Credits.h" />
     <ClInclude Include="Hooks.h" />
     <ClInclude Include="ColourMaps.h" />
     <ClInclude Include="ColourMapsStrings.h" />
@@ -188,6 +189,7 @@
     <ClCompile Include="ColourMaps.cpp" />
     <ClCompile Include="DirectPlayCompat.cpp" />
     <ClCompile Include="FrontendFocus.cpp" />
+    <ClCompile Include="Credits.cpp" />
     <ClCompile Include="WaterFix.cpp" />
     <ClCompile Include="SecretWeapons.cpp" />
     <ClCompile Include="FrontendNetwork.cpp" />
